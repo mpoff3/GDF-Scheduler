@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Trainer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  assignments      Assignment[]
+  classAssignments ClassAssignment[]
+
+  @@map("trainers")
+}
+
+model Dog {
+  id                   Int      @id @default(autoincrement())
+  name                 String
+  status               String   @default("in_training") // in_training | ready_for_class | in_class | graduated | dropout
+  initialTrainingWeeks Int      @default(0) @map("initial_training_weeks")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  assignments      Assignment[]
+  classAssignments ClassAssignment[]
+
+  @@map("dogs")
+}
+
+model Assignment {
+  id            Int      @id @default(autoincrement())
+  dogId         Int      @map("dog_id")
+  trainerId     Int      @map("trainer_id")
+  weekStartDate DateTime @map("week_start_date")
+  type          String   // training | class | paused
+
+  dog     Dog     @relation(fields: [dogId], references: [id], onDelete: Cascade)
+  trainer Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+
+  @@unique([dogId, weekStartDate])
+  @@map("assignments")
+}
+
+model Class {
+  id        Int      @id @default(autoincrement())
+  startDate DateTime @map("start_date")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  classAssignments ClassAssignment[]
+
+  @@map("classes")
+}
+
+model ClassAssignment {
+  id        Int @id @default(autoincrement())
+  classId   Int @map("class_id")
+  trainerId Int @map("trainer_id")
+  dogId     Int @map("dog_id")
+
+  class   Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  trainer Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  dog     Dog     @relation(fields: [dogId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, dogId])
+  @@map("class_assignments")
+}

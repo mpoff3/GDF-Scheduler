@@ -1,0 +1,6 @@
+export const MIN_TRAINING_WEEKS = 14;
+export const MAX_TRAINING_WEEKS = 22;
+export const MAX_TRAINING_DOGS_PER_TRAINER = 4;
+export const MAX_CLASS_DOGS_PER_TRAINER = 2;
+export const CLASS_DURATION_WEEKS = 2;
+export const FORECAST_HORIZON_WEEKS = 104;
