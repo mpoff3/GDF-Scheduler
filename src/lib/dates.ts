@@ -1,15 +1,15 @@
 export function getMonday(date: Date): Date {
   const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
+  const day = d.getUTCDay();
+  const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+  d.setUTCDate(diff);
+  d.setUTCHours(0, 0, 0, 0);
   return d;
 }
 
 export function addWeeks(date: Date, weeks: number): Date {
   const d = new Date(date);
-  d.setDate(d.getDate() + weeks * 7);
+  d.setUTCDate(d.getUTCDate() + weeks * 7);
   return d;
 }
 
@@ -27,6 +27,7 @@ export function formatWeekDate(date: Date): string {
   return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
   });
 }
 

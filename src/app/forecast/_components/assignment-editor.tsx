@@ -52,6 +52,7 @@ export function AssignmentEditor({
     month: "long",
     day: "numeric",
     year: "numeric",
+    timeZone: "UTC",
   });
 
   useEffect(() => {

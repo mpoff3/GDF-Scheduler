@@ -25,6 +25,7 @@ export default async function ClassesPage() {
               month: "long",
               day: "numeric",
               year: "numeric",
+              timeZone: "UTC",
             });
             return (
               <Card key={cls.id}>

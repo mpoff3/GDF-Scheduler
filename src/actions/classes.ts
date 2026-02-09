@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { fromDateString, addWeeks, toDateString } from "@/lib/dates";
+import { fromDateString, addWeeks, toDateString, getMonday } from "@/lib/dates";
 import { MAX_CLASS_DOGS_PER_TRAINER, CLASS_DURATION_WEEKS } from "@/lib/constants";
 import { syncDogStatus } from "@/actions/assignments";
 
@@ -24,7 +24,8 @@ export async function scheduleClass(data: {
   startDate: string;
   assignments: { dogId: number; trainerId: number }[];
 }): Promise<ScheduleClassResult> {
-  const startDate = fromDateString(data.startDate);
+  // Normalize to Monday of the selected week so assignments align with forecast grid
+  const startDate = getMonday(fromDateString(data.startDate));
   const errors: string[] = [];
   const displacedDogs: DisplacedDog[] = [];
 
@@ -89,7 +90,8 @@ export async function confirmClass(data: {
   assignments: { dogId: number; trainerId: number }[];
   displacedActions: { dogId: number; weekStartDate: string; action: "pause" | "remove" }[];
 }) {
-  const startDate = fromDateString(data.startDate);
+  // Normalize to Monday of the selected week so assignments align with forecast grid
+  const startDate = getMonday(fromDateString(data.startDate));
 
   // Create the class
   const cls = await prisma.class.create({

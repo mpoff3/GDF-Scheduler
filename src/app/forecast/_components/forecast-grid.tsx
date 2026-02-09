@@ -6,12 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AssignmentEditor } from "./assignment-editor";
 import { MIN_TRAINING_WEEKS, MAX_TRAINING_WEEKS } from "@/lib/constants";
+import { getMonday } from "@/lib/dates";
 import type { ForecastData } from "@/queries/forecast";
 import Link from "next/link";
 
 function formatWeek(isoDate: string) {
   const d = new Date(isoDate);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 function getDogBadgeClass(type: string, trainingWeeks: number) {
@@ -76,12 +77,7 @@ export function ForecastGrid({
             variant="outline"
             size="sm"
             onClick={() => {
-              const monday = new Date();
-              const day = monday.getDay();
-              const diff = monday.getDate() - day + (day === 0 ? -6 : 1);
-              monday.setDate(diff);
-              monday.setHours(0, 0, 0, 0);
-              fetchData(monday.toISOString());
+              fetchData(getMonday(new Date()).toISOString());
             }}
           >
             Today
@@ -113,19 +109,19 @@ export function ForecastGrid({
             <span className="w-3 h-3 rounded bg-yellow-200 border border-yellow-300" /> Ready (14+)
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded bg-red-200 border border-red-300" /> Warning (22+)
+            <span className="w-3 h-3 rounded bg-red-200 border border-red-300" /> Warning (18+)
           </span>
         </div>
 
-        <div className="overflow-x-auto border rounded-lg">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto border border-gray-300 rounded-lg">
+          <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="text-left p-2 font-medium sticky left-0 bg-muted/50 min-w-[120px]">
+              <tr className="bg-muted/50">
+                <th className="text-left p-2 font-medium sticky left-0 bg-muted/50 min-w-[120px] border border-gray-300">
                   Trainer
                 </th>
                 {data.weekStarts.map((ws) => (
-                  <th key={ws} className="text-center p-2 font-medium min-w-[120px]">
+                  <th key={ws} className="text-center p-2 font-medium min-w-[120px] border border-gray-300">
                     {formatWeek(ws)}
                   </th>
                 ))}
@@ -133,8 +129,8 @@ export function ForecastGrid({
             </thead>
             <tbody>
               {data.trainers.map((row) => (
-                <tr key={row.trainer.id} className="border-b">
-                  <td className="p-2 font-medium sticky left-0 bg-background">
+                <tr key={row.trainer.id}>
+                  <td className="p-2 font-medium sticky left-0 bg-background border border-gray-300">
                     {row.trainer.name}
                   </td>
                   {data.weekStarts.map((ws) => {
@@ -142,7 +138,7 @@ export function ForecastGrid({
                     return (
                       <td
                         key={ws}
-                        className="p-1 cursor-pointer hover:bg-muted/30 align-top"
+                        className="p-1.5 cursor-pointer hover:bg-muted/30 align-top border border-gray-300 text-center"
                         onClick={() =>
                           setEditingCell({
                             trainerId: row.trainer.id,
@@ -151,13 +147,13 @@ export function ForecastGrid({
                           })
                         }
                       >
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-col items-center gap-1">
                           {cell?.dogs.map((dog) => (
                             <Tooltip key={dog.id}>
                               <TooltipTrigger asChild>
                                 <Badge
                                   variant="outline"
-                                  className={`text-xs cursor-pointer ${getDogBadgeClass(dog.type, dog.trainingWeeks)}`}
+                                  className={`text-xs cursor-pointer shrink-0 ${getDogBadgeClass(dog.type, dog.trainingWeeks)}`}
                                 >
                                   {dog.name}
                                   {dog.type === "training" && (
@@ -185,7 +181,7 @@ export function ForecastGrid({
                 <tr>
                   <td
                     colSpan={data.weekStarts.length + 1}
-                    className="text-center p-8 text-muted-foreground"
+                    className="text-center p-8 text-muted-foreground border border-gray-300"
                   >
                     No trainers yet. Add trainers to see the forecast.
                   </td>

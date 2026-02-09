@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { dogSchema, recallSchema } from "@/lib/validators";
-import { fromDateString } from "@/lib/dates";
-import { MAX_TRAINING_DOGS_PER_TRAINER } from "@/lib/constants";
+import { fromDateString, addWeeks, toDateString } from "@/lib/dates";
+import { MAX_TRAINING_DOGS_PER_TRAINER, MIN_TRAINING_WEEKS } from "@/lib/constants";
 
 export async function createDog(formData: FormData) {
   const parsed = dogSchema.parse({
@@ -69,7 +69,9 @@ export async function scheduleRecall(data: {
   const parsed = recallSchema.parse(data);
   const weekStart = fromDateString(parsed.weekStartDate);
 
-  // Validate trainer capacity for each trainer
+  const defaultWeeks = MIN_TRAINING_WEEKS;
+
+  // Validate trainer capacity for each trainer across all weeks
   const trainerDogCounts = new Map<number, number>();
   for (const dog of parsed.dogs) {
     trainerDogCounts.set(
@@ -79,25 +81,29 @@ export async function scheduleRecall(data: {
   }
 
   for (const [trainerId, newCount] of trainerDogCounts) {
-    const existingCount = await prisma.assignment.count({
-      where: {
-        trainerId,
-        weekStartDate: weekStart,
-        type: "training",
-      },
-    });
-
-    if (existingCount + newCount > MAX_TRAINING_DOGS_PER_TRAINER) {
-      const trainer = await prisma.trainer.findUnique({
-        where: { id: trainerId },
+    for (let w = 0; w < defaultWeeks; w++) {
+      const weekDate = addWeeks(weekStart, w);
+      const existingCount = await prisma.assignment.count({
+        where: {
+          trainerId,
+          weekStartDate: weekDate,
+          type: "training",
+        },
       });
-      throw new Error(
-        `Trainer ${trainer?.name || trainerId} would exceed capacity (${existingCount + newCount}/${MAX_TRAINING_DOGS_PER_TRAINER})`
-      );
+
+      if (existingCount + newCount > MAX_TRAINING_DOGS_PER_TRAINER) {
+        const trainer = await prisma.trainer.findUnique({
+          where: { id: trainerId },
+        });
+        const weekStr = toDateString(weekDate);
+        throw new Error(
+          `Trainer ${trainer?.name || trainerId} would exceed capacity for week of ${weekStr} (${existingCount + newCount}/${MAX_TRAINING_DOGS_PER_TRAINER})`
+        );
+      }
     }
   }
 
-  // Create dogs and their first training assignments
+  // Create dogs and their training assignments for 14 weeks
   for (const dogData of parsed.dogs) {
     const dog = await prisma.dog.create({
       data: {
@@ -107,14 +113,18 @@ export async function scheduleRecall(data: {
       },
     });
 
-    await prisma.assignment.create({
-      data: {
-        dogId: dog.id,
-        trainerId: dogData.trainerId,
-        weekStartDate: weekStart,
-        type: "training",
-      },
-    });
+    // Create an assignment for each of the 14 weeks
+    for (let w = 0; w < defaultWeeks; w++) {
+      const weekDate = addWeeks(weekStart, w);
+      await prisma.assignment.create({
+        data: {
+          dogId: dog.id,
+          trainerId: dogData.trainerId,
+          weekStartDate: weekDate,
+          type: "training",
+        },
+      });
+    }
   }
 
   revalidatePath("/dogs");

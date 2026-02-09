@@ -143,7 +143,17 @@ export function ClassScheduleForm({
                 <Input
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) => {
+                    // Auto-snap to Monday of the selected week
+                    const picked = e.target.value;
+                    if (picked) {
+                      const d = new Date(picked + "T00:00:00");
+                      const monday = getMonday(d);
+                      setStartDate(toDateString(monday));
+                    } else {
+                      setStartDate(picked);
+                    }
+                  }}
                 />
               </div>
 
@@ -227,9 +237,10 @@ export function ClassScheduleForm({
                       <span className="font-medium">{d.dogName}</span>
                       <span className="text-xs text-muted-foreground ml-2">
                         with {d.trainerName} — week of{" "}
-                        {new Date(d.weekStartDate + "T00:00:00").toLocaleDateString("en-US", {
+                        {new Date(d.weekStartDate + "T00:00:00Z").toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
+                          timeZone: "UTC",
                         })}
                       </span>
                     </div>
@@ -271,10 +282,11 @@ export function ClassScheduleForm({
               <div>
                 <Label className="text-sm">Start Date</Label>
                 <p className="text-sm">
-                  {new Date(startDate + "T00:00:00").toLocaleDateString("en-US", {
+                  {new Date(startDate + "T00:00:00Z").toLocaleDateString("en-US", {
                     month: "long",
                     day: "numeric",
                     year: "numeric",
+                    timeZone: "UTC",
                   })}
                 </p>
               </div>
