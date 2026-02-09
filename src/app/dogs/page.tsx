@@ -3,6 +3,7 @@ import { getDogs } from "@/queries/dogs";
 import { deleteDog, markDogDropout, reenrollDog } from "@/actions/dogs";
 import { syncAllDogsStatus } from "@/actions/assignments";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { StatusBadge } from "./_components/status-badge";
 import {
   Table,
@@ -84,16 +85,17 @@ export default async function DogsPage() {
                       </Button>
                     </form>
                   )}
-                  <form
-                    action={async () => {
-                      "use server";
-                      await deleteDog(dog.id);
-                    }}
-                  >
-                    <Button variant="destructive" size="sm" type="submit">
-                      Delete
-                    </Button>
-                  </form>
+                  <DeleteConfirmDialog
+                    title="Delete this dog?"
+                    description="This will permanently remove the dog and their assignment history. This cannot be undone."
+                    action={deleteDog}
+                    id={dog.id}
+                    trigger={
+                      <Button variant="destructive" size="sm">
+                        Delete
+                      </Button>
+                    }
+                  />
                 </div>
               </TableCell>
             </TableRow>

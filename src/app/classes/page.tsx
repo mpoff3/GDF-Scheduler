@@ -4,6 +4,7 @@ import { deleteClass } from "@/actions/classes";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 
 export default async function ClassesPage() {
   const classes = await getClasses();
@@ -38,16 +39,17 @@ export default async function ClassesPage() {
                     <Button variant="outline" size="sm" asChild>
                       <Link href={`/classes/${cls.id}/edit`}>Edit</Link>
                     </Button>
-                    <form
-                      action={async () => {
-                        "use server";
-                        await deleteClass(cls.id);
-                      }}
-                    >
-                      <Button variant="destructive" size="sm" type="submit">
-                        Delete
-                      </Button>
-                    </form>
+                    <DeleteConfirmDialog
+                      title="Delete this class?"
+                      description="This will remove the class and all its assignments. This cannot be undone."
+                      action={deleteClass}
+                      id={cls.id}
+                      trigger={
+                        <Button variant="destructive" size="sm">
+                          Delete
+                        </Button>
+                      }
+                    />
                   </div>
                 </CardHeader>
                 <CardContent>

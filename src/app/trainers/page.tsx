@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getTrainers } from "@/queries/trainers";
 import { deleteTrainer } from "@/actions/trainers";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import {
   Table,
   TableBody,
@@ -39,16 +40,17 @@ export default async function TrainersPage() {
                   <Button variant="outline" size="sm" asChild>
                     <Link href={`/trainers/${trainer.id}/edit`}>Edit</Link>
                   </Button>
-                  <form
-                    action={async () => {
-                      "use server";
-                      await deleteTrainer(trainer.id);
-                    }}
-                  >
-                    <Button variant="destructive" size="sm" type="submit">
-                      Delete
-                    </Button>
-                  </form>
+                  <DeleteConfirmDialog
+                    title="Delete this trainer?"
+                    description="This will permanently remove the trainer. This cannot be undone."
+                    action={deleteTrainer}
+                    id={trainer.id}
+                    trigger={
+                      <Button variant="destructive" size="sm">
+                        Delete
+                      </Button>
+                    }
+                  />
                 </div>
               </TableCell>
             </TableRow>
