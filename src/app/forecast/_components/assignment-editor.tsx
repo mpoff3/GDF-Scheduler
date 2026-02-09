@@ -15,7 +15,7 @@ import { createAssignment, deleteAssignment } from "@/actions/assignments";
 type DogInfo = {
   id: number;
   name: string;
-  type: "training" | "class" | "paused";
+  type: "training" | "class" | "paused" | "dropout" | "not_yet_ift" | "graduated";
   assignmentId: number;
   trainingWeeks: number;
 };
