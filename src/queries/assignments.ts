@@ -26,7 +26,7 @@ export async function validateTrainerCapacity(
   const maxCount =
     type === "training" ? MAX_TRAINING_DOGS_PER_TRAINER : MAX_CLASS_DOGS_PER_TRAINER;
 
-  // Check if trainer has a class assignment this week
+  // A trainer can only do training OR class in a given week, never both
   if (type === "training") {
     const classAssignment = await prisma.assignment.findFirst({
       where: {
@@ -36,6 +36,20 @@ export async function validateTrainerCapacity(
       },
     });
     if (classAssignment) {
+      return { valid: false, currentCount: 0, maxCount: 0 };
+    }
+  }
+
+  if (type === "class") {
+    const trainingAssignment = await prisma.assignment.findFirst({
+      where: {
+        trainerId,
+        weekStartDate,
+        type: "training",
+        ...(excludeDogId ? { dogId: { not: excludeDogId } } : {}),
+      },
+    });
+    if (trainingAssignment) {
       return { valid: false, currentCount: 0, maxCount: 0 };
     }
   }

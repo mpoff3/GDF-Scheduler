@@ -13,8 +13,9 @@ import { getMonday, toDateString } from "@/lib/dates";
 type DogRow = {
   name: string;
   trainerId: string;
-  initialTrainingWeeks: string;
 };
+
+const UNASSIGNED_TRAINER_VALUE = "";
 
 export function RecallForm({
   trainers,
@@ -27,15 +28,16 @@ export function RecallForm({
   const [weekStartDate, setWeekStartDate] = useState(
     toDateString(getMonday(new Date()))
   );
-  const [dogs, setDogs] = useState<DogRow[]>([
-    { name: "", trainerId: trainers[0]?.id.toString() || "", initialTrainingWeeks: "0" },
-  ]);
+  const [dogs, setDogs] = useState<DogRow[]>([]);
+  const [numDogsToAdd, setNumDogsToAdd] = useState(12);
 
-  function addRow() {
-    setDogs([
-      ...dogs,
-      { name: "", trainerId: trainers[0]?.id.toString() || "", initialTrainingWeeks: "0" },
-    ]);
+  function addMultipleRows(count: number) {
+    const n = Math.max(1, Math.min(50, count));
+    const newRows: DogRow[] = Array.from({ length: n }, () => ({
+      name: "",
+      trainerId: UNASSIGNED_TRAINER_VALUE,
+    }));
+    setDogs([...dogs, ...newRows]);
   }
 
   function removeRow(index: number) {
@@ -56,8 +58,8 @@ export function RecallForm({
           weekStartDate,
           dogs: dogs.map((d) => ({
             name: d.name,
-            trainerId: Number(d.trainerId),
-            initialTrainingWeeks: Number(d.initialTrainingWeeks),
+            trainerId: d.trainerId === "" ? 0 : Number(d.trainerId),
+            initialTrainingWeeks: 0,
           })),
         });
         router.push("/dogs");
@@ -88,66 +90,79 @@ export function RecallForm({
 
       <div className="space-y-3">
         <Label>Dogs</Label>
-        {dogs.map((dog, i) => (
-          <Card key={i}>
-            <CardContent className="flex gap-3 items-end pt-4">
-              <div className="flex-1 space-y-1">
-                <Label className="text-xs">Name</Label>
-                <Input
-                  value={dog.name}
-                  onChange={(e) => updateRow(i, "name", e.target.value)}
-                  placeholder="Dog name"
-                  required
-                />
-              </div>
-              <div className="w-40 space-y-1">
-                <Label className="text-xs">Trainer</Label>
-                <select
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                  value={dog.trainerId}
-                  onChange={(e) => updateRow(i, "trainerId", e.target.value)}
-                >
-                  {trainers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="w-32 space-y-1">
-                <Label className="text-xs">Prior Weeks</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={22}
-                  value={dog.initialTrainingWeeks}
-                  onChange={(e) =>
-                    updateRow(i, "initialTrainingWeeks", e.target.value)
-                  }
-                />
-              </div>
-              {dogs.length > 1 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeRow(i)}
-                  type="button"
-                >
-                  Remove
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="flex gap-2">
-        <Button type="button" variant="outline" onClick={addRow}>
-          Add Dog
-        </Button>
-        <Button onClick={handleSubmit} disabled={isPending}>
-          {isPending ? "Scheduling..." : "Schedule Recall"}
-        </Button>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">Number of dogs</Label>
+            <Input
+              type="number"
+              min={1}
+              max={50}
+              value={numDogsToAdd}
+              onChange={(e) =>
+                setNumDogsToAdd(Math.max(1, Math.min(50, parseInt(e.target.value, 10) || 1)))
+              }
+              className="w-24"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => addMultipleRows(numDogsToAdd)}
+          >
+            Add {numDogsToAdd} Dog{numDogsToAdd !== 1 ? "s" : ""}
+          </Button>
+        </div>
+        {dogs.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">
+            Choose how many dogs above and click &quot;Add X Dogs&quot; to create slots, then fill in names and trainers.
+          </p>
+        ) : (
+          <>
+            {dogs.map((dog, i) => (
+              <Card key={i}>
+                <CardContent className="flex gap-3 items-end pt-4">
+                  <div className="flex-1 space-y-1">
+                    <Label className="text-xs">Name</Label>
+                    <Input
+                      value={dog.name}
+                      onChange={(e) => updateRow(i, "name", e.target.value)}
+                      placeholder="Dog name"
+                      required
+                    />
+                  </div>
+                  <div className="w-40 space-y-1">
+                    <Label className="text-xs">Trainer</Label>
+                    <select
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                      value={dog.trainerId}
+                      onChange={(e) => updateRow(i, "trainerId", e.target.value)}
+                    >
+                      <option value="">idk yet...</option>
+                      {trainers.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeRow(i)}
+                    type="button"
+                  >
+                    Remove
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleSubmit} disabled={isPending}>
+                {isPending ? "Scheduling..." : "Schedule Recall"}
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

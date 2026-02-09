@@ -20,12 +20,13 @@ model Trainer {
 }
 
 model Dog {
-  id                   Int      @id @default(autoincrement())
+  id                   Int       @id @default(autoincrement())
   name                 String
-  status               String   @default("in_training") // in_training | ready_for_class | in_class | graduated | dropout
-  initialTrainingWeeks Int      @default(0) @map("initial_training_weeks")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  status               String    @default("in_training") // in_training | ready_for_class | in_class | graduated | dropout | paused | not_yet_ift
+  initialTrainingWeeks Int       @default(0) @map("initial_training_weeks")
+  recallWeekStartDate  DateTime? @map("recall_week_start_date") // week dog is scheduled to start (when added via recall); null for dogs added via "Add Dog"
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   assignments      Assignment[]
   classAssignments ClassAssignment[]
@@ -34,14 +35,14 @@ model Dog {
 }
 
 model Assignment {
-  id            Int      @id @default(autoincrement())
-  dogId         Int      @map("dog_id")
-  trainerId     Int      @map("trainer_id")
-  weekStartDate DateTime @map("week_start_date")
-  type          String   // training | class | paused
+  id            Int       @id @default(autoincrement())
+  dogId         Int       @map("dog_id")
+  trainerId     Int?      @map("trainer_id") // null = parking lot (unassigned for this week)
+  weekStartDate DateTime  @map("week_start_date")
+  type          String    // training | class | paused
 
-  dog     Dog     @relation(fields: [dogId], references: [id], onDelete: Cascade)
-  trainer Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  dog     Dog      @relation(fields: [dogId], references: [id], onDelete: Cascade)
+  trainer Trainer? @relation(fields: [trainerId], references: [id], onDelete: Cascade)
 
   @@unique([dogId, weekStartDate])
   @@map("assignments")

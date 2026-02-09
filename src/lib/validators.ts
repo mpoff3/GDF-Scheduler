@@ -4,9 +4,15 @@ export const trainerSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
 });
 
+const optionalDateString = z
+  .union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")])
+  .optional()
+  .transform((s) => (s === "" || s === undefined ? null : s));
+
 export const dogSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
   initialTrainingWeeks: z.coerce.number().int().min(0).max(22).default(0),
+  recallWeekStartDate: optionalDateString,
 });
 
 export const assignmentSchema = z.object({
@@ -21,7 +27,7 @@ export const recallSchema = z.object({
   dogs: z.array(
     z.object({
       name: z.string().min(1, "Name is required"),
-      trainerId: z.coerce.number().int().positive(),
+      trainerId: z.coerce.number().int().min(0), // 0 = "idk yet" → dog created as paused, no assignment
       initialTrainingWeeks: z.coerce.number().int().min(0).max(22).default(0),
     })
   ).min(1, "At least one dog is required"),

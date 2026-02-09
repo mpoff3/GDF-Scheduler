@@ -41,6 +41,22 @@ export default async function EditDogPage({
                 defaultValue={dog.initialTrainingWeeks}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="recallWeekStartDate">IFT Date</Label>
+              <Input
+                id="recallWeekStartDate"
+                name="recallWeekStartDate"
+                type="date"
+                defaultValue={
+                  dog.recallWeekStartDate
+                    ? dog.recallWeekStartDate.toISOString().split("T")[0]
+                    : ""
+                }
+              />
+              <p className="text-muted-foreground text-sm">
+                Leave empty if not applicable.
+              </p>
+            </div>
             <div className="flex gap-2">
               <Button type="submit">Save</Button>
               <Button variant="outline" asChild>

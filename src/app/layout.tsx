@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 };
 
 const navItems = [
-  { href: "/forecast", label: "Forecast" },
+  { href: "/forecast", label: "Calendar" },
   { href: "/trainers", label: "Trainers" },
   { href: "/dogs", label: "Dogs" },
   { href: "/classes", label: "Classes" },

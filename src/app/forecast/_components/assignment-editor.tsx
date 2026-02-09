@@ -114,7 +114,11 @@ export function AssignmentEditor({
               <p className="text-sm text-muted-foreground mt-1">No assignments</p>
             ) : (
               <div className="space-y-2 mt-2">
-                {currentDogs.map((dog) => (
+                {[...currentDogs]
+                  .sort((a, b) =>
+                    a.name.localeCompare(b.name, "en", { sensitivity: "base" })
+                  )
+                  .map((dog) => (
                   <div
                     key={dog.id}
                     className="flex items-center justify-between p-2 rounded border"
@@ -151,7 +155,7 @@ export function AssignmentEditor({
                 <option value="">Select a dog...</option>
                 {availableDogs.map((dog) => (
                   <option key={dog.id} value={dog.id}>
-                    {dog.name} ({dog.status.replace(/_/g, " ")})
+                    {dog.name} ({dog.status === "not_yet_ift" ? "Not Yet IFT" : dog.status.replace(/_/g, " ")})
                   </option>
                 ))}
               </select>

@@ -48,36 +48,36 @@ export async function scheduleClass(data: {
     return { valid: false, errors, displacedDogs: [] };
   }
 
-  // Find displaced training dogs for each class week
+  // Collect training dogs that would be displaced during class weeks (move to parking lot)
   const trainerIds = [...new Set(data.assignments.map((a) => a.trainerId))];
+  // Exclude ALL dogs in the class (not just those for the current trainer) so that a
+  // class dog whose prior training assignment was with a different class-trainer isn't
+  // mistakenly flagged as displaced.
+  const allClassDogIds = new Set(data.assignments.map((a) => a.dogId));
 
-  for (let w = 0; w < CLASS_DURATION_WEEKS; w++) {
-    const weekDate = addWeeks(startDate, w);
+  for (const trainerId of trainerIds) {
+    for (let w = 0; w < CLASS_DURATION_WEEKS; w++) {
+      const weekDate = addWeeks(startDate, w);
 
-    for (const trainerId of trainerIds) {
-      const existingAssignments = await prisma.assignment.findMany({
+      const trainingAssignments = await prisma.assignment.findMany({
         where: {
           trainerId,
           weekStartDate: weekDate,
           type: "training",
+          dogId: { notIn: [...allClassDogIds] },
         },
         include: { dog: true, trainer: true },
       });
 
-      for (const ea of existingAssignments) {
-        // Only displaced if the dog is not being assigned to class
-        const isClassDog = data.assignments.some(
-          (a) => a.dogId === ea.dogId && a.trainerId === ea.trainerId
-        );
-        if (!isClassDog) {
-          displacedDogs.push({
-            dogId: ea.dogId,
-            dogName: ea.dog.name,
-            trainerId: ea.trainerId,
-            trainerName: ea.trainer.name,
-            weekStartDate: toDateString(weekDate),
-          });
-        }
+      for (const a of trainingAssignments) {
+        if (a.trainerId == null || !a.trainer) continue;
+        displacedDogs.push({
+          dogId: a.dogId,
+          dogName: a.dog.name,
+          trainerId: a.trainerId,
+          trainerName: a.trainer.name,
+          weekStartDate: toDateString(weekDate),
+        });
       }
     }
   }
@@ -134,13 +134,16 @@ export async function confirmClass(data: {
     await syncDogStatus(a.dogId);
   }
 
-  // Handle displaced dogs
+  // Handle displaced dogs: pause = move to parking lot (trainerId null), remove = delete assignment
+  // Safety: never overwrite a class dog's assignment
+  const classDogIds = new Set(data.assignments.map((a) => a.dogId));
   for (const d of data.displacedActions) {
+    if (classDogIds.has(d.dogId)) continue; // skip class dogs
     const weekDate = fromDateString(d.weekStartDate);
     if (d.action === "pause") {
       await prisma.assignment.updateMany({
         where: { dogId: d.dogId, weekStartDate: weekDate },
-        data: { type: "paused" },
+        data: { trainerId: null, type: "paused" },
       });
     } else {
       await prisma.assignment.deleteMany({
@@ -149,6 +152,129 @@ export async function confirmClass(data: {
     }
     await syncDogStatus(d.dogId);
   }
+
+  revalidatePath("/classes");
+  revalidatePath("/forecast");
+  revalidatePath("/dogs");
+}
+
+export async function updateClass(data: {
+  classId: number;
+  startDate: string;
+  assignments: { dogId: number; trainerId: number }[];
+  displacedActions: { dogId: number; weekStartDate: string; action: "pause" | "remove" }[];
+}) {
+  const startDate = getMonday(fromDateString(data.startDate));
+
+  const cls = await prisma.class.findUnique({
+    where: { id: data.classId },
+    include: { classAssignments: true },
+  });
+  if (!cls) throw new Error("Class not found");
+
+  // Remove old class assignments and their assignment rows
+  for (const ca of cls.classAssignments) {
+    for (let w = 0; w < CLASS_DURATION_WEEKS; w++) {
+      const weekDate = addWeeks(startDate, w);
+      await prisma.assignment.deleteMany({
+        where: {
+          dogId: ca.dogId,
+          weekStartDate: weekDate,
+        },
+      });
+    }
+    await syncDogStatus(ca.dogId);
+  }
+  await prisma.classAssignment.deleteMany({
+    where: { classId: data.classId },
+  });
+
+  // Create new class assignments and assignment rows (same as confirmClass)
+  for (const a of data.assignments) {
+    await prisma.classAssignment.create({
+      data: {
+        classId: data.classId,
+        trainerId: a.trainerId,
+        dogId: a.dogId,
+      },
+    });
+
+    for (let w = 0; w < CLASS_DURATION_WEEKS; w++) {
+      const weekDate = addWeeks(startDate, w);
+      await prisma.assignment.upsert({
+        where: {
+          dogId_weekStartDate: {
+            dogId: a.dogId,
+            weekStartDate: weekDate,
+          },
+        },
+        update: {
+          trainerId: a.trainerId,
+          type: "class",
+        },
+        create: {
+          dogId: a.dogId,
+          trainerId: a.trainerId,
+          weekStartDate: weekDate,
+          type: "class",
+        },
+      });
+    }
+
+    await syncDogStatus(a.dogId);
+  }
+
+  // Handle displaced dogs: pause = move to parking lot (trainerId null), remove = delete assignment
+  // Safety: never overwrite a class dog's assignment
+  const updatedClassDogIds = new Set(data.assignments.map((a) => a.dogId));
+  for (const d of data.displacedActions) {
+    if (updatedClassDogIds.has(d.dogId)) continue; // skip class dogs
+    const weekDate = fromDateString(d.weekStartDate);
+    if (d.action === "pause") {
+      await prisma.assignment.updateMany({
+        where: { dogId: d.dogId, weekStartDate: weekDate },
+        data: { trainerId: null, type: "paused" },
+      });
+    } else {
+      await prisma.assignment.deleteMany({
+        where: { dogId: d.dogId, weekStartDate: weekDate },
+      });
+    }
+    await syncDogStatus(d.dogId);
+  }
+
+  revalidatePath("/classes");
+  revalidatePath("/forecast");
+  revalidatePath("/dogs");
+}
+
+export async function deleteClass(classId: number) {
+  const cls = await prisma.class.findUnique({
+    where: { id: classId },
+    include: { classAssignments: true },
+  });
+  if (!cls) throw new Error("Class not found");
+
+  const startDate = cls.startDate;
+
+  // Remove assignment rows for each class week and sync dog status
+  for (const ca of cls.classAssignments) {
+    for (let w = 0; w < CLASS_DURATION_WEEKS; w++) {
+      const weekDate = addWeeks(startDate, w);
+      await prisma.assignment.deleteMany({
+        where: {
+          dogId: ca.dogId,
+          weekStartDate: weekDate,
+        },
+      });
+    }
+    await syncDogStatus(ca.dogId);
+  }
+
+  // Cascade will delete classAssignments
+  await prisma.class.delete({
+    where: { id: classId },
+  });
 
   revalidatePath("/classes");
   revalidatePath("/forecast");

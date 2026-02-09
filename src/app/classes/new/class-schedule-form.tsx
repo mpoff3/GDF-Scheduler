@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { scheduleClass, confirmClass, type DisplacedDog } from "@/actions/classes";
+import { scheduleClass, confirmClass, updateClass, type DisplacedDog } from "@/actions/classes";
 import { getMonday, toDateString } from "@/lib/dates";
 
 type DogAssignment = {
@@ -16,28 +16,84 @@ type DogAssignment = {
   trainerId: number;
 };
 
+type ExistingClass = {
+  id: number;
+  startDate: string;
+  assignments: { dogId: number; trainerId: number }[];
+};
+
 export function ClassScheduleForm({
   trainers,
   readyDogs,
+  defaultStartDate,
+  existingClass,
 }: {
   trainers: { id: number; name: string }[];
   readyDogs: { id: number; name: string; trainingWeeks: number }[];
+  defaultStartDate: string;
+  existingClass?: ExistingClass;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  const [startDate, setStartDate] = useState(toDateString(getMonday(new Date())));
+  const initialStartDate = existingClass
+    ? existingClass.startDate
+    : toDateString(getMonday(new Date()));
+  const initialSelected = existingClass
+    ? new Set(existingClass.assignments.map((a) => a.dogId))
+    : new Set<number>();
+  const initialDogTrainerMap = existingClass
+    ? Object.fromEntries(existingClass.assignments.map((a) => [a.dogId, a.trainerId]))
+    : {};
+
+  const [startDate, setStartDate] = useState(initialStartDate);
   const [assignments, setAssignments] = useState<DogAssignment[]>([]);
   const [displacedDogs, setDisplacedDogs] = useState<DisplacedDog[]>([]);
   const [displacedActions, setDisplacedActions] = useState<
     Record<string, "pause" | "remove">
   >({});
 
-  // Step 1 state
-  const [selectedDogs, setSelectedDogs] = useState<Set<number>>(new Set());
-  const [dogTrainerMap, setDogTrainerMap] = useState<Record<number, number>>({});
+  // Step 1 state: ready dogs for the selected date (fetched when date changes)
+  const [readyDogsList, setReadyDogsList] = useState(readyDogs);
+  const [loadingReadyDogs, setLoadingReadyDogs] = useState(false);
+
+  const effectiveDefaultStartDate = existingClass ? existingClass.startDate : defaultStartDate;
+
+  useEffect(() => {
+    if (!startDate) {
+      setReadyDogsList([]);
+      return;
+    }
+    // Use server data when date matches default; otherwise fetch for selected date
+    if (startDate === effectiveDefaultStartDate) {
+      setReadyDogsList(readyDogs);
+      return;
+    }
+    setLoadingReadyDogs(true);
+    fetch(`/api/classes/ready-dogs?startDate=${startDate}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setReadyDogsList(data);
+        setSelectedDogs((prev) => {
+          const next = new Set(prev);
+          const ids = new Set(data.map((d: { id: number }) => d.id));
+          for (const id of next) {
+            if (!ids.has(id)) next.delete(id);
+          }
+          return next;
+        });
+      })
+      .catch(() => setReadyDogsList([]))
+      .finally(() => setLoadingReadyDogs(false));
+  }, [startDate, effectiveDefaultStartDate, readyDogs]);
+
+  const [selectedDogs, setSelectedDogs] = useState<Set<number>>(initialSelected);
+  const [dogTrainerMap, setDogTrainerMap] = useState<Record<number, number>>(initialDogTrainerMap);
 
   function toggleDog(dogId: number) {
     const next = new Set(selectedDogs);
@@ -106,19 +162,32 @@ export function ClassScheduleForm({
     setError(null);
     startTransition(async () => {
       try {
-        await confirmClass({
-          startDate,
-          assignments,
-          displacedActions: displacedDogs.map((d) => ({
-            dogId: d.dogId,
-            weekStartDate: d.weekStartDate,
-            action: displacedActions[`${d.dogId}-${d.weekStartDate}`] || "pause",
-          })),
-        });
+        if (existingClass) {
+          await updateClass({
+            classId: existingClass.id,
+            startDate,
+            assignments,
+            displacedActions: displacedDogs.map((d) => ({
+              dogId: d.dogId,
+              weekStartDate: d.weekStartDate,
+              action: displacedActions[`${d.dogId}-${d.weekStartDate}`] || "pause",
+            })),
+          });
+        } else {
+          await confirmClass({
+            startDate,
+            assignments,
+            displacedActions: displacedDogs.map((d) => ({
+              dogId: d.dogId,
+              weekStartDate: d.weekStartDate,
+              action: displacedActions[`${d.dogId}-${d.weekStartDate}`] || "pause",
+            })),
+          });
+        }
         router.push("/classes");
         router.refresh();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to schedule class");
+        setError(e instanceof Error ? e.message : "Failed to save class");
       }
     });
   }
@@ -143,6 +212,7 @@ export function ClassScheduleForm({
                 <Input
                   type="date"
                   value={startDate}
+                  disabled={!!existingClass}
                   onChange={(e) => {
                     // Auto-snap to Monday of the selected week
                     const picked = e.target.value;
@@ -157,14 +227,18 @@ export function ClassScheduleForm({
                 />
               </div>
 
-              {readyDogs.length === 0 ? (
+              {loadingReadyDogs ? (
                 <p className="text-sm text-muted-foreground">
-                  No dogs with 14+ training weeks available.
+                  Loading dogs for selected date…
+                </p>
+              ) : readyDogsList.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No dogs with 14+ training weeks available for this date.
                 </p>
               ) : (
                 <div className="space-y-2">
                   <Label>Dogs Ready for Class</Label>
-                  {readyDogs.map((dog) => (
+                  {readyDogsList.map((dog) => (
                     <div
                       key={dog.id}
                       className={`flex items-center gap-3 p-3 rounded border cursor-pointer ${
@@ -293,7 +367,7 @@ export function ClassScheduleForm({
               <div>
                 <Label className="text-sm">Dog-Trainer Pairs</Label>
                 {assignments.map((a) => {
-                  const dog = readyDogs.find((d) => d.id === a.dogId);
+                  const dog = readyDogsList.find((d) => d.id === a.dogId) ?? readyDogs.find((d) => d.id === a.dogId);
                   const trainer = trainers.find((t) => t.id === a.trainerId);
                   return (
                     <p key={a.dogId} className="text-sm">
@@ -326,7 +400,11 @@ export function ClassScheduleForm({
               Back
             </Button>
             <Button onClick={handleConfirm} disabled={isPending}>
-              {isPending ? "Scheduling..." : "Confirm & Schedule"}
+              {isPending
+                ? (existingClass ? "Updating..." : "Scheduling...")
+                : existingClass
+                  ? "Update Class"
+                  : "Confirm & Schedule"}
             </Button>
           </div>
         </>

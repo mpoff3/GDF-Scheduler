@@ -1,11 +1,13 @@
 import { getTrainers } from "@/queries/trainers";
 import { getDogsReadyForClass } from "@/queries/dogs";
+import { getMonday, toDateString } from "@/lib/dates";
 import { ClassScheduleForm } from "./class-schedule-form";
 
 export default async function NewClassPage() {
+  const defaultStartDate = getMonday(new Date());
   const [trainers, readyDogs] = await Promise.all([
     getTrainers(),
-    getDogsReadyForClass(),
+    getDogsReadyForClass(defaultStartDate),
   ]);
 
   return (
@@ -18,6 +20,7 @@ export default async function NewClassPage() {
           name: d.name,
           trainingWeeks: d.trainingWeeks,
         }))}
+        defaultStartDate={toDateString(defaultStartDate)}
       />
     </div>
   );
