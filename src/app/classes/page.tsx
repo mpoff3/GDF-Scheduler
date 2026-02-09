@@ -52,16 +52,22 @@ export default async function ClassesPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {cls.classAssignments.map((ca) => (
-                      <div key={ca.id} className="flex items-center gap-2">
-                        <Badge variant="outline" className="bg-green-100 text-green-800">
-                          {ca.dog.name}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          with {ca.trainer.name}
-                        </span>
-                      </div>
-                    ))}
+                    {cls.classAssignments.length === 0 ? (
+                      <p className="text-sm text-muted-foreground italic">
+                        No dogs or trainers assigned yet
+                      </p>
+                    ) : (
+                      cls.classAssignments.map((ca) => (
+                        <div key={ca.id} className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-green-100 text-green-800">
+                            {ca.dog.name}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            with {ca.trainer.name}
+                          </span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </CardContent>
               </Card>

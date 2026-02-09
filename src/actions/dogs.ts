@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { dogSchema, recallSchema } from "@/lib/validators";
-import { fromDateString, addWeeks, toDateString } from "@/lib/dates";
+import { fromDateString, addWeeks, toDateString, getMonday } from "@/lib/dates";
 import { MAX_TRAINING_DOGS_PER_TRAINER, MIN_TRAINING_WEEKS } from "@/lib/constants";
 import { syncDogStatus } from "@/actions/assignments";
 
@@ -64,17 +64,20 @@ export async function deleteDog(id: number) {
   revalidatePath("/dogs");
 }
 
-export async function markDogDropout(id: number) {
+export async function markDogDropout(id: number, weekStartDate?: string) {
+  const dropoutWeek = weekStartDate
+    ? getMonday(fromDateString(weekStartDate))
+    : getMonday(new Date());
+
   await prisma.dog.update({
     where: { id },
-    data: { status: "dropout" },
+    data: { status: "dropout", dropoutDate: dropoutWeek },
   });
-  // Remove future assignments
-  const now = new Date();
+  // Remove assignments from the dropout week onward
   await prisma.assignment.deleteMany({
     where: {
       dogId: id,
-      weekStartDate: { gte: now },
+      weekStartDate: { gte: dropoutWeek },
     },
   });
   revalidatePath("/dogs");
@@ -84,7 +87,7 @@ export async function markDogDropout(id: number) {
 export async function reenrollDog(id: number) {
   await prisma.dog.update({
     where: { id },
-    data: { status: "in_training" },
+    data: { status: "in_training", dropoutDate: null },
   });
   await syncDogStatus(id);
   revalidatePath("/dogs");
@@ -180,30 +183,22 @@ export async function scheduleRecall(data: {
         const weekDate = addWeeks(weekStart, w);
         const isClassWeek = classWeeks.has(weekDate.toISOString());
 
-        await prisma.assignment.create({
-          data: {
-            dogId: dog.id,
-            trainerId: dogData.trainerId,
-            weekStartDate: weekDate,
-            type: isClassWeek ? "paused" : "training",
-          },
-        });
+        // Skip class weeks — dog is implicitly in parking lot for those weeks
+        if (!isClassWeek) {
+          await prisma.assignment.create({
+            data: {
+              dogId: dog.id,
+              trainerId: dogData.trainerId,
+              weekStartDate: weekDate,
+              type: "training",
+            },
+          });
+        }
       }
       // Don't call syncDogStatus yet; dog stays not_yet_ift until recall week
-    } else {
-      // "idk yet..." — create parking lot assignments (trainerId null) for all weeks
-      for (let w = 0; w < defaultWeeks; w++) {
-        const weekDate = addWeeks(weekStart, w);
-        await prisma.assignment.create({
-          data: {
-            dogId: dog.id,
-            trainerId: null,
-            weekStartDate: weekDate,
-            type: "paused",
-          },
-        });
-      }
     }
+    // "idk yet..." (no trainer) — no assignments created.
+    // Dog is implicitly in parking lot for all weeks.
   }
 
   revalidatePath("/dogs");

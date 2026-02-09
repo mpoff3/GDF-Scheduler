@@ -25,6 +25,7 @@ model Dog {
   status               String    @default("in_training") // in_training | ready_for_class | in_class | graduated | dropout | paused | not_yet_ift
   initialTrainingWeeks Int       @default(0) @map("initial_training_weeks")
   recallWeekStartDate  DateTime? @map("recall_week_start_date") // week dog is scheduled to start (when added via recall); null for dogs added via "Add Dog"
+  dropoutDate          DateTime? @map("dropout_date") // week the dog dropped out; null unless status = dropout
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -35,14 +36,14 @@ model Dog {
 }
 
 model Assignment {
-  id            Int       @id @default(autoincrement())
-  dogId         Int       @map("dog_id")
-  trainerId     Int?      @map("trainer_id") // null = parking lot (unassigned for this week)
-  weekStartDate DateTime  @map("week_start_date")
-  type          String    // training | class | paused
+  id            Int      @id @default(autoincrement())
+  dogId         Int      @map("dog_id")
+  trainerId     Int      @map("trainer_id")
+  weekStartDate DateTime @map("week_start_date")
+  type          String   // training | class
 
-  dog     Dog      @relation(fields: [dogId], references: [id], onDelete: Cascade)
-  trainer Trainer? @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  dog     Dog     @relation(fields: [dogId], references: [id], onDelete: Cascade)
+  trainer Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
 
   @@unique([dogId, weekStartDate])
   @@map("assignments")

@@ -25,7 +25,7 @@ export type ForecastData = {
   recallCountByWeek: Record<string, number>;
   /** ISO week start dates where a class is scheduled */
   classWeekStarts: string[];
-  /** Row for assignments with trainerId null (parking lot), per week */
+  /** Row for unassigned dogs (parking lot), per week */
   parkingLot: ForecastRow;
   /** Row for dogs not yet in formal training (recall scheduled but not started) */
   notYetIft: ForecastRow;
@@ -76,37 +76,42 @@ export async function getForecastData(
     dogTrainingWeeksByDate.set(dog.id, weekMap);
   }
 
+  // Helper: get cumulative training weeks for a dog up to a given week
+  function getTrainingWeeks(dogId: number, weekStart: string, initialWeeks: number): number {
+    const dogWeekMap = dogTrainingWeeksByDate.get(dogId);
+    let trainingWeeks = initialWeeks;
+    if (dogWeekMap) {
+      for (const [date, count] of dogWeekMap) {
+        if (date <= weekStart) {
+          trainingWeeks = count;
+        }
+      }
+    }
+    return trainingWeeks;
+  }
+
   // Generate week starts
   const weekStarts: string[] = [];
   for (let i = 0; i < weekCount; i++) {
     weekStarts.push(addWeeks(startDate, i).toISOString());
   }
 
-  // Build rows (only assignments with a trainer)
+  // Build trainer rows — all assignments now have a trainer
   const rows: ForecastRow[] = trainers.map((trainer) => {
     const weeks: Record<string, ForecastCell> = {};
 
     for (const weekStart of weekStarts) {
       const cellAssignments = assignments.filter(
         (a) =>
-          a.trainerId != null &&
           a.trainerId === trainer.id &&
           a.weekStartDate.toISOString() === weekStart
       );
 
       weeks[weekStart] = {
         dogs: cellAssignments.map((a) => {
-          // Get cumulative training weeks for this dog up to this week (include prior/initial weeks)
-          const dogWeekMap = dogTrainingWeeksByDate.get(a.dogId);
-          let trainingWeeks = a.dog.initialTrainingWeeks ?? 0;
-          if (dogWeekMap) {
-            for (const [date, count] of dogWeekMap) {
-              if (date <= weekStart) {
-                trainingWeeks = count;
-              }
-            }
-          }
+          let trainingWeeks = getTrainingWeeks(a.dogId, weekStart, a.dog.initialTrainingWeeks ?? 0);
           // If it's a training week and not yet counted, add one
+          const dogWeekMap = dogTrainingWeeksByDate.get(a.dogId);
           if (a.type === "training" && dogWeekMap && !dogWeekMap.has(weekStart)) {
             trainingWeeks++;
           }
@@ -114,7 +119,7 @@ export async function getForecastData(
           return {
             id: a.dog.id,
             name: a.dog.name,
-            type: a.type as "training" | "class" | "paused",
+            type: a.type as "training" | "class",
             assignmentId: a.id,
             trainingWeeks,
           };
@@ -125,55 +130,12 @@ export async function getForecastData(
     return { trainer: { id: trainer.id, name: trainer.name }, weeks };
   });
 
-  // Dogs that show in Not Yet IFT row (for weeks before their recall date) — exclude them from Parking Lot for those same weeks
-  const notYetIftDogsForFilter = allDogs.filter(
-    (d) => d.status === "not_yet_ift" && d.recallWeekStartDate
-  );
-
-  // Parking Lot: assignments with trainerId null, per week (exclude dogs that appear in Not Yet IFT for this week)
-  const parkingLotWeeks: Record<string, ForecastCell> = {};
-  for (const weekStart of weekStarts) {
-    const weekDate = new Date(weekStart);
-    const cellAssignments = assignments.filter(
-      (a) =>
-        a.trainerId == null &&
-        a.weekStartDate.toISOString() === weekStart &&
-        !(
-          a.dog.status === "not_yet_ift" &&
-          a.dog.recallWeekStartDate &&
-          weekDate < a.dog.recallWeekStartDate
-        )
-    );
-    parkingLotWeeks[weekStart] = {
-      dogs: cellAssignments.map((a) => {
-        const dogWeekMap = dogTrainingWeeksByDate.get(a.dogId);
-        let trainingWeeks = a.dog.initialTrainingWeeks ?? 0;
-        if (dogWeekMap) {
-          for (const [date, count] of dogWeekMap) {
-            if (date <= weekStart) {
-              trainingWeeks = count;
-            }
-          }
-        }
-        return {
-          id: a.dog.id,
-          name: a.dog.name,
-          type: a.type as "training" | "class" | "paused",
-          assignmentId: a.id,
-          trainingWeeks,
-        };
-      }),
-    };
-  }
-  const parkingLot: ForecastRow = {
-    trainer: { id: -1, name: "Parking Lot" },
-    weeks: parkingLotWeeks,
-  };
-
   // --- Not Yet IFT row ---
   // Dogs with status "not_yet_ift" appear in this row for weeks BEFORE their recall date.
   // From their recall date onward they have regular assignments in trainer/parking lot rows.
-  const notYetIftDogs = notYetIftDogsForFilter;
+  const notYetIftDogs = allDogs.filter(
+    (d) => d.status === "not_yet_ift" && d.recallWeekStartDate
+  );
   const notYetIftWeeks: Record<string, ForecastCell> = {};
   for (const weekStart of weekStarts) {
     const weekDate = new Date(weekStart);
@@ -278,25 +240,16 @@ export async function getForecastData(
   };
 
   // --- Dropped Out row ---
-  // Dogs with status "dropout" appear here for weeks AFTER their last assignment.
-  // (markDogDropout deletes future assignments, so the last assignment = last active week.)
+  // Dogs with status "dropout" appear here for weeks on or after their dropoutDate.
   const dropoutDogs = await prisma.dog.findMany({
     where: { status: "dropout" },
-    include: {
-      assignments: {
-        orderBy: { weekStartDate: "desc" },
-        take: 1,
-      },
-    },
   });
   const droppedOutWeeks: Record<string, ForecastCell> = {};
   for (const weekStart of weekStarts) {
     const dogs: ForecastCell["dogs"] = [];
     for (const dog of dropoutDogs) {
-      const lastAssignment = dog.assignments[0];
-      // Show as dropped out for weeks after the last assignment
-      const dropoutStart = lastAssignment
-        ? addWeeks(lastAssignment.weekStartDate, 1).toISOString()
+      const dropoutStart = dog.dropoutDate
+        ? dog.dropoutDate.toISOString()
         : new Date(0).toISOString();
       if (weekStart >= dropoutStart) {
         dogs.push({
@@ -315,10 +268,9 @@ export async function getForecastData(
     weeks: droppedOutWeeks,
   };
 
-  // --- Fill parking lot with unassigned active dogs ---
-  // Dogs that have started (have at least one assignment on or before a week) but
-  // don't appear in ANY row for that week should be shown in the Parking Lot.
-  // This catches dogs whose assignments ran out (e.g., displaced training dogs after class).
+  // --- Parking Lot ---
+  // Dogs that have started (have at least one assignment, or have a recall date that has passed)
+  // but don't appear in any other row for that week are shown in the Parking Lot.
   const earliestAssignments = await prisma.assignment.groupBy({
     by: ["dogId"],
     _min: { weekStartDate: true },
@@ -329,8 +281,22 @@ export async function getForecastData(
       dogStartDate.set(ea.dogId, ea._min.weekStartDate.toISOString());
     }
   }
+  // Also consider recallWeekStartDate as a start date for dogs added via recall.
+  // Use the EARLIEST of recallWeekStartDate and first assignment so a dog that was
+  // recalled (and thus "started") before their first assignment still appears in
+  // the parking lot for all weeks from recall onward.
+  for (const dog of allDogs) {
+    if (dog.recallWeekStartDate) {
+      const recallStr = dog.recallWeekStartDate.toISOString();
+      const existing = dogStartDate.get(dog.id);
+      if (!existing || recallStr < existing) {
+        dogStartDate.set(dog.id, recallStr);
+      }
+    }
+  }
   const dogInfoMap = new Map(allDogs.map((d) => [d.id, d]));
 
+  const parkingLotWeeks: Record<string, ForecastCell> = {};
   for (const weekStart of weekStarts) {
     // Collect all dog IDs already appearing in any row for this week
     const assignedDogIds = new Set<number>();
@@ -339,9 +305,6 @@ export async function getForecastData(
       for (const dog of row.weeks[weekStart]?.dogs || []) {
         assignedDogIds.add(dog.id);
       }
-    }
-    for (const dog of parkingLotWeeks[weekStart]?.dogs || []) {
-      assignedDogIds.add(dog.id);
     }
     for (const dog of notYetIftWeeks[weekStart]?.dogs || []) {
       assignedDogIds.add(dog.id);
@@ -353,24 +316,17 @@ export async function getForecastData(
       assignedDogIds.add(dog.id);
     }
 
+    const dogs: ForecastCell["dogs"] = [];
+
     // Find dogs that have started but don't appear in any row
     for (const [dogId, startDateStr] of dogStartDate) {
       if (startDateStr <= weekStart && !assignedDogIds.has(dogId)) {
         const dog = dogInfoMap.get(dogId);
         if (!dog) continue;
 
-        // Compute cumulative training weeks up to this week
-        const dogWeekMap = dogTrainingWeeksByDate.get(dogId);
-        let trainingWeeks = 0;
-        if (dogWeekMap) {
-          for (const [date, count] of dogWeekMap) {
-            if (date <= weekStart) {
-              trainingWeeks = count;
-            }
-          }
-        }
+        const trainingWeeks = getTrainingWeeks(dogId, weekStart, dog.initialTrainingWeeks);
 
-        parkingLotWeeks[weekStart].dogs.push({
+        dogs.push({
           id: dog.id,
           name: dog.name,
           type: "paused",
@@ -379,7 +335,13 @@ export async function getForecastData(
         });
       }
     }
+
+    parkingLotWeeks[weekStart] = { dogs };
   }
+  const parkingLot: ForecastRow = {
+    trainer: { id: -1, name: "Parking Lot" },
+    weeks: parkingLotWeeks,
+  };
 
   return {
     trainers: rows,

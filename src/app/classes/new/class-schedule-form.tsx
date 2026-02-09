@@ -59,6 +59,15 @@ export function ClassScheduleForm({
   const [readyDogsList, setReadyDogsList] = useState(readyDogs);
   const [loadingReadyDogs, setLoadingReadyDogs] = useState(false);
 
+  // Dogs from the existing class — kept available even when date changes during edit
+  const [existingClassDogsList] = useState(() => {
+    if (!existingClass) return [] as typeof readyDogs;
+    return existingClass.assignments.map((a) => {
+      const dog = readyDogs.find((d) => d.id === a.dogId);
+      return dog || { id: a.dogId, name: `Dog #${a.dogId}`, trainingWeeks: 14 };
+    });
+  });
+
   const effectiveDefaultStartDate = existingClass ? existingClass.startDate : defaultStartDate;
 
   useEffect(() => {
@@ -78,10 +87,21 @@ export function ClassScheduleForm({
         return res.json();
       })
       .then((data) => {
-        setReadyDogsList(data);
+        // When editing, merge in existing class dogs so they remain selectable
+        let merged = data;
+        if (existingClassDogsList.length > 0) {
+          const fetchedIds = new Set(data.map((d: { id: number }) => d.id));
+          merged = [...data];
+          for (const dog of existingClassDogsList) {
+            if (!fetchedIds.has(dog.id)) {
+              merged.push(dog);
+            }
+          }
+        }
+        setReadyDogsList(merged);
         setSelectedDogs((prev) => {
           const next = new Set(prev);
-          const ids = new Set(data.map((d: { id: number }) => d.id));
+          const ids = new Set(merged.map((d: { id: number }) => d.id));
           for (const id of next) {
             if (!ids.has(id)) next.delete(id);
           }
@@ -90,7 +110,7 @@ export function ClassScheduleForm({
       })
       .catch(() => setReadyDogsList([]))
       .finally(() => setLoadingReadyDogs(false));
-  }, [startDate, effectiveDefaultStartDate, readyDogs]);
+  }, [startDate, effectiveDefaultStartDate, readyDogs, existingClassDogsList]);
 
   const [selectedDogs, setSelectedDogs] = useState<Set<number>>(initialSelected);
   const [dogTrainerMap, setDogTrainerMap] = useState<Record<number, number>>(initialDogTrainerMap);
@@ -119,12 +139,15 @@ export function ClassScheduleForm({
       trainerId: dogTrainerMap[dogId],
     }));
 
+    setAssignments(classAssignments);
+
+    // No dogs selected — skip validation and displaced check, go straight to confirm
     if (classAssignments.length === 0) {
-      setError("Select at least one dog for the class");
+      setDisplacedDogs([]);
+      setDisplacedActions({});
+      setStep(3);
       return;
     }
-
-    setAssignments(classAssignments);
 
     startTransition(async () => {
       try {
@@ -204,7 +227,7 @@ export function ClassScheduleForm({
         <>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Step 1: Select Date & Dogs</CardTitle>
+              <CardTitle className="text-base">Step 1: Select Date & Dogs (optional)</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -212,7 +235,6 @@ export function ClassScheduleForm({
                 <Input
                   type="date"
                   value={startDate}
-                  disabled={!!existingClass}
                   onChange={(e) => {
                     // Auto-snap to Monday of the selected week
                     const picked = e.target.value;
@@ -234,6 +256,7 @@ export function ClassScheduleForm({
               ) : readyDogsList.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   No dogs with 14+ training weeks available for this date.
+                  You can still schedule the date and assign dogs later.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -285,7 +308,7 @@ export function ClassScheduleForm({
           </Card>
 
           <Button onClick={handleValidate} disabled={isPending}>
-            {isPending ? "Checking..." : "Next"}
+            {isPending ? "Checking..." : selectedDogs.size === 0 ? "Schedule Date Only" : "Next"}
           </Button>
         </>
       )}
@@ -366,15 +389,21 @@ export function ClassScheduleForm({
               </div>
               <div>
                 <Label className="text-sm">Dog-Trainer Pairs</Label>
-                {assignments.map((a) => {
-                  const dog = readyDogsList.find((d) => d.id === a.dogId) ?? readyDogs.find((d) => d.id === a.dogId);
-                  const trainer = trainers.find((t) => t.id === a.trainerId);
-                  return (
-                    <p key={a.dogId} className="text-sm">
-                      {dog?.name} with {trainer?.name}
-                    </p>
-                  );
-                })}
+                {assignments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No dogs or trainers assigned yet. You can add them later by editing this class.
+                  </p>
+                ) : (
+                  assignments.map((a) => {
+                    const dog = readyDogsList.find((d) => d.id === a.dogId) ?? readyDogs.find((d) => d.id === a.dogId);
+                    const trainer = trainers.find((t) => t.id === a.trainerId);
+                    return (
+                      <p key={a.dogId} className="text-sm">
+                        {dog?.name} with {trainer?.name}
+                      </p>
+                    );
+                  })
+                )}
               </div>
               {displacedDogs.length > 0 && (
                 <div>

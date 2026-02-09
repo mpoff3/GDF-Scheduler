@@ -19,7 +19,7 @@ export const assignmentSchema = z.object({
   dogId: z.coerce.number().int().positive(),
   trainerId: z.coerce.number().int().positive(),
   weekStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  type: z.enum(["training", "class", "paused"]),
+  type: z.enum(["training", "class"]),
 });
 
 export const recallSchema = z.object({

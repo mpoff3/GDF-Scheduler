@@ -11,25 +11,23 @@ export async function createAssignment(data: {
   dogId: number;
   trainerId: number;
   weekStartDate: string;
-  type: "training" | "class" | "paused";
+  type: "training" | "class";
 }) {
   const parsed = assignmentSchema.parse(data);
   const weekStart = fromDateString(parsed.weekStartDate);
 
-  if (parsed.type === "training" || parsed.type === "class") {
-    const capacity = await validateTrainerCapacity(
-      parsed.trainerId,
-      weekStart,
-      parsed.type === "class" ? "class" : "training"
-    );
-    if (!capacity.valid) {
-      if (capacity.maxCount === 0) {
-        throw new Error("Trainer is doing class this week; cannot assign a dog for training.");
-      }
-      throw new Error(
-        `Trainer at capacity (${capacity.currentCount}/${capacity.maxCount})`
-      );
+  const capacity = await validateTrainerCapacity(
+    parsed.trainerId,
+    weekStart,
+    parsed.type === "class" ? "class" : "training"
+  );
+  if (!capacity.valid) {
+    if (capacity.maxCount === 0) {
+      throw new Error("Trainer is doing class this week; cannot assign a dog for training.");
     }
+    throw new Error(
+      `Trainer at capacity (${capacity.currentCount}/${capacity.maxCount})`
+    );
   }
 
   await prisma.assignment.upsert({
@@ -73,30 +71,28 @@ export async function bulkCreateAssignments(
     dogId: number;
     trainerId: number;
     weekStartDate: string;
-    type: "training" | "class" | "paused";
+    type: "training" | "class";
   }[]
 ) {
   for (const a of assignments) {
     const parsed = assignmentSchema.parse(a);
     const weekStart = fromDateString(parsed.weekStartDate);
 
-    if (parsed.type === "training" || parsed.type === "class") {
-      const capacity = await validateTrainerCapacity(
-        parsed.trainerId,
-        weekStart,
-        parsed.type === "class" ? "class" : "training",
-        parsed.dogId // exclude this dog so re-scheduling doesn't double-count
-      );
-      if (!capacity.valid) {
-        if (capacity.maxCount === 0) {
-          throw new Error(
-            "Trainer is doing class this week; cannot assign a dog for training."
-          );
-        }
+    const capacity = await validateTrainerCapacity(
+      parsed.trainerId,
+      weekStart,
+      parsed.type === "class" ? "class" : "training",
+      parsed.dogId // exclude this dog so re-scheduling doesn't double-count
+    );
+    if (!capacity.valid) {
+      if (capacity.maxCount === 0) {
         throw new Error(
-          `Trainer at capacity (${capacity.currentCount}/${capacity.maxCount}) for week of ${parsed.weekStartDate}`
+          "Trainer is doing class this week; cannot assign a dog for training."
         );
       }
+      throw new Error(
+        `Trainer at capacity (${capacity.currentCount}/${capacity.maxCount}) for week of ${parsed.weekStartDate}`
+      );
     }
 
     await prisma.assignment.upsert({
@@ -128,28 +124,20 @@ export async function bulkCreateAssignments(
   revalidatePath("/dogs");
 }
 
+/**
+ * Move a dog to the parking lot for a given week by deleting their assignment.
+ * The absence of an assignment means the dog is implicitly in the parking lot.
+ */
 export async function moveToParkingLot(data: {
   dogId: number;
   weekStartDate: string;
 }) {
   const weekStart = fromDateString(data.weekStartDate);
 
-  await prisma.assignment.upsert({
+  await prisma.assignment.deleteMany({
     where: {
-      dogId_weekStartDate: {
-        dogId: data.dogId,
-        weekStartDate: weekStart,
-      },
-    },
-    update: {
-      trainerId: null,
-      type: "paused",
-    },
-    create: {
       dogId: data.dogId,
-      trainerId: null,
       weekStartDate: weekStart,
-      type: "paused",
     },
   });
 
@@ -174,7 +162,7 @@ export async function syncDogStatus(dogId: number) {
     return;
   }
 
-  // Not Yet IFT: transition to in_training/paused once recall week has been reached
+  // Not Yet IFT: transition to in_training once recall week has been reached
   if (dog.status === "not_yet_ift" && dog.recallWeekStartDate) {
     if (dog.recallWeekStartDate > startOfCurrentWeek) return; // still future, keep not_yet_ift
     await prisma.dog.update({
@@ -227,7 +215,7 @@ export async function syncDogStatus(dogId: number) {
   });
   const totalWeeks = completedTrainingWeeks + dog.initialTrainingWeeks;
 
-  // Dog with no training assignments stays paused (e.g. "idk yet" recall or parking lot only)
+  // Dog with no training assignments stays paused (e.g. "idk yet" recall or just added)
   const hasAnyTrainingAssignment = await prisma.assignment.count({
     where: { dogId, type: "training" },
   });

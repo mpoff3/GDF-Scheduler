@@ -12,9 +12,9 @@ export async function GET(request: NextRequest) {
 
   const weekStart = fromDateString(weekDate);
 
-  // Dogs already assigned to a trainer this week (exclude from dropdown); parking lot (trainerId null) dogs are still available
+  // Dogs already assigned to a trainer this week (exclude from dropdown)
   const assignedToTrainer = await prisma.assignment.findMany({
-    where: { weekStartDate: weekStart, trainerId: { not: null } },
+    where: { weekStartDate: weekStart },
     select: { dogId: true },
   });
 
@@ -37,18 +37,6 @@ export async function GET(request: NextRequest) {
 
   const dogIds = dogs.map((d) => d.id);
 
-  // Assignments for this week for these dogs (including parking lot) — used to get status for the week
-  const assignmentsThisWeek =
-    dogIds.length > 0
-      ? await prisma.assignment.findMany({
-          where: { weekStartDate: weekStart, dogId: { in: dogIds } },
-          select: { dogId: true, type: true },
-        })
-      : [];
-  const assignmentByDogId = new Map(
-    assignmentsThisWeek.map((a) => [a.dogId, a.type])
-  );
-
   // Find each dog's earliest assignment to know if they've "started" training
   const earliestAssignments =
     dogIds.length > 0
@@ -67,14 +55,9 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     dogs: dogs.map((d) => {
       // Determine the dog's effective status FOR THIS WEEK (not their current DB status).
-      // This mirrors the forecast grid logic.
-      const assignmentType = assignmentByDogId.get(d.id);
       let statusForWeek: string;
 
-      if (assignmentType) {
-        // Dog has a parking-lot assignment this week — use that type
-        statusForWeek = assignmentType; // training | class | paused
-      } else if (
+      if (
         d.status === "not_yet_ift" &&
         d.recallWeekStartDate &&
         weekStart.getTime() < d.recallWeekStartDate.getTime()
@@ -82,9 +65,12 @@ export async function GET(request: NextRequest) {
         // Not-yet-IFT dog whose recall hasn't come yet
         statusForWeek = "not_yet_ift";
       } else {
-        // No assignment this week — check if the dog has started (any prior assignment)
+        // Check if the dog has started (any prior assignment or recall date passed)
         const startDate = dogStartDate.get(d.id);
-        if (startDate && startDate.getTime() <= weekStart.getTime()) {
+        const recallStarted =
+          d.recallWeekStartDate && weekStart.getTime() >= d.recallWeekStartDate.getTime();
+
+        if ((startDate && startDate.getTime() <= weekStart.getTime()) || recallStarted) {
           // Dog has started but has no assignment this week → effectively paused / parking lot
           statusForWeek = "paused";
         } else if (

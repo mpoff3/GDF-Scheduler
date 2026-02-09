@@ -45,7 +45,7 @@ export function AssignmentEditor({
   const [error, setError] = useState<string | null>(null);
   const [availableDogs, setAvailableDogs] = useState<AvailableDog[]>([]);
   const [selectedDogId, setSelectedDogId] = useState<string>("");
-  const [assignType, setAssignType] = useState<"training" | "paused">("training");
+  const assignType = "training" as const;
 
   const weekDateStr = weekStart.split("T")[0];
   const weekDisplay = new Date(weekStart).toLocaleDateString("en-US", {
@@ -158,16 +158,6 @@ export function AssignmentEditor({
                     {dog.name} ({dog.status === "not_yet_ift" ? "Not Yet IFT" : dog.status.replace(/_/g, " ")})
                   </option>
                 ))}
-              </select>
-              <select
-                className="flex h-9 w-28 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                value={assignType}
-                onChange={(e) =>
-                  setAssignType(e.target.value as "training" | "paused")
-                }
-              >
-                <option value="training">Training</option>
-                <option value="paused">Paused</option>
               </select>
               <Button
                 size="sm"

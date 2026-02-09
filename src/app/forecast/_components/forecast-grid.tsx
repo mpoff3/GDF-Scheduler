@@ -3,7 +3,6 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -134,10 +133,13 @@ export function ForecastGrid({
     weekStart: string;
   } | null>(null);
   type DogInCell = ForecastData["trainers"][number]["weeks"][string]["dogs"][number];
+  type RowType = "trainer" | "parkingLot" | "notYetIft" | "graduated" | "droppedOut";
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     dog: DogInCell;
+    weekStart: string;
+    rowType: RowType;
   } | null>(null);
   const [renameDialog, setRenameDialog] = useState<{ id: number; name: string } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -343,7 +345,8 @@ export function ForecastGrid({
     cellLabel: string,
     weekStart: string,
     onDogClick?: (dog: ForecastData["trainers"][number]["weeks"][string]["dogs"][number]) => void,
-    onDogContextMenu?: (e: React.MouseEvent, dog: DogInCell) => void,
+    onDogContextMenu?: (e: React.MouseEvent, dog: DogInCell, weekStart: string, rowType: RowType) => void,
+    rowType: RowType = "trainer",
   ) {
     const sorted = [...dogs].sort((a, b) =>
       a.name.localeCompare(b.name, "en", { sensitivity: "base" })
@@ -354,43 +357,35 @@ export function ForecastGrid({
     return (
       <div className="flex flex-col items-center gap-1">
         {visible.map((dog) => (
-          <Tooltip key={dog.id}>
-            <TooltipTrigger asChild>
-              <Badge
-                variant="outline"
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData("application/dog-id", String(dog.id));
-                  e.dataTransfer.effectAllowed = "move";
-                  setDraggedDogId(dog.id);
-                }}
-                onDragEnd={() => {
-                  setDraggedDogId(null);
-                  setDragOverCell(null);
-                }}
-                onClick={onDogClick ? (e) => {
-                  e.stopPropagation();
-                  onDogClick(dog);
-                } : undefined}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onDogContextMenu?.(e, dog);
-                }}
-                className={`text-xs cursor-grab active:cursor-grabbing shrink-0 ${getDogBadgeClass(dog.type, dog.trainingWeeks)} ${draggedDogId === dog.id ? "opacity-50" : ""} ${onDogClick ? "hover:ring-2 hover:ring-blue-400 cursor-pointer" : ""}`}
-              >
-                {dog.name}
-                <span className="ml-1 opacity-70">
-                  w{dog.trainingWeeks}
-                </span>
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Completed {dog.trainingWeeks} weeks of training so far</p>
-              {onDogClick && <p className="text-xs opacity-70">Click to schedule</p>}
-              <p className="text-xs opacity-70">Right-click for more options</p>
-            </TooltipContent>
-          </Tooltip>
+          <Badge
+            key={dog.id}
+            variant="outline"
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData("application/dog-id", String(dog.id));
+              e.dataTransfer.effectAllowed = "move";
+              setDraggedDogId(dog.id);
+            }}
+            onDragEnd={() => {
+              setDraggedDogId(null);
+              setDragOverCell(null);
+            }}
+            onClick={onDogClick ? (e) => {
+              e.stopPropagation();
+              onDogClick(dog);
+            } : undefined}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDogContextMenu?.(e, dog, weekStart, rowType);
+            }}
+            className={`text-xs cursor-grab active:cursor-grabbing shrink-0 ${getDogBadgeClass(dog.type, dog.trainingWeeks)} ${draggedDogId === dog.id ? "opacity-50" : ""} hover:ring-2 hover:ring-blue-400 ${onDogClick ? "cursor-pointer" : ""}`}
+          >
+            {dog.name}
+            <span className="ml-1 opacity-70">
+              w{dog.trainingWeeks}
+            </span>
+          </Badge>
         ))}
         {remaining > 0 && (
           <button
@@ -409,8 +404,7 @@ export function ForecastGrid({
   }
 
   return (
-    <TooltipProvider>
-      <div className="space-y-4">
+    <div className="space-y-4">
         <div className="flex items-center gap-4">
           <Button
             variant="outline"
@@ -538,7 +532,7 @@ export function ForecastGrid({
                           if (dogId) handleDrop(row.trainer.id, ws, dogId, trainerHasClassThisWeek);
                         }}
                       >
-                        {cell?.dogs && renderDogBadges(cell.dogs, row.trainer.name, ws, undefined, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
+                        {cell?.dogs && renderDogBadges(cell.dogs, row.trainer.name, ws, undefined, (e, dog, weekStart, rowType) => setContextMenu({ x: e.clientX, y: e.clientY, dog, weekStart, rowType }), "trainer")}
                       </td>
                     );
                   })}
@@ -587,7 +581,7 @@ export function ForecastGrid({
                             trainingWeeks: dog.trainingWeeks,
                             weekStart: ws,
                           });
-                        }, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
+                        }, (e, dog, weekStart, rowType) => setContextMenu({ x: e.clientX, y: e.clientY, dog, weekStart, rowType }), "parkingLot")}
                       </td>
                     );
                   })}
@@ -608,7 +602,7 @@ export function ForecastGrid({
                         key={ws}
                         className={`p-1.5 align-top border border-gray-300 text-center ${recall && !classWeek ? "bg-amber-50/50 border-amber-200/70" : ""}`}
                       >
-                        {cell?.dogs && renderDogBadges(cell.dogs, "Not Yet IFT", ws, undefined, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
+                        {cell?.dogs && renderDogBadges(cell.dogs, "Not Yet IFT", ws, undefined, (e, dog, weekStart, rowType) => setContextMenu({ x: e.clientX, y: e.clientY, dog, weekStart, rowType }), "notYetIft")}
                       </td>
                     );
                   })}
@@ -629,7 +623,7 @@ export function ForecastGrid({
                         key={ws}
                         className={`p-1.5 align-top border border-gray-300 text-center ${recall && !classWeek ? "bg-amber-50/50 border-amber-200/70" : ""}`}
                       >
-                        {cell?.dogs && renderDogBadges(cell.dogs, "Graduated", ws, undefined, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
+                        {cell?.dogs && renderDogBadges(cell.dogs, "Graduated", ws, undefined, (e, dog, weekStart, rowType) => setContextMenu({ x: e.clientX, y: e.clientY, dog, weekStart, rowType }), "graduated")}
                       </td>
                     );
                   })}
@@ -650,7 +644,7 @@ export function ForecastGrid({
                         key={ws}
                         className={`p-1.5 align-top border border-gray-300 text-center ${recall && !classWeek ? "bg-amber-50/50 border-amber-200/70" : ""}`}
                       >
-                        {cell?.dogs && renderDogBadges(cell.dogs, "Dropped Out", ws, undefined, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
+                        {cell?.dogs && renderDogBadges(cell.dogs, "Dropped Out", ws, undefined, (e, dog, weekStart, rowType) => setContextMenu({ x: e.clientX, y: e.clientY, dog, weekStart, rowType }), "droppedOut")}
                       </td>
                     );
                   })}
@@ -717,28 +711,37 @@ export function ForecastGrid({
               </DialogHeader>
               <div className="flex flex-wrap gap-2 mt-2">
                 {expandedCell.dogs.map((dog) => (
-                  <Tooltip key={dog.id}>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="outline"
-                        className={`text-xs shrink-0 cursor-context-menu ${getDogBadgeClass(dog.type, dog.trainingWeeks)}`}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setExpandedCell(null);
-                          setContextMenu({ x: e.clientX, y: e.clientY, dog });
-                        }}
-                      >
-                        {dog.name}
-                        <span className="ml-1 opacity-70">
-                          w{dog.trainingWeeks}
-                        </span>
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Completed {dog.trainingWeeks} weeks of training so far</p>
-                      <p className="text-xs opacity-70">Right-click for more options</p>
-                    </TooltipContent>
-                  </Tooltip>
+                  <Badge
+                    key={dog.id}
+                    variant="outline"
+                    className={`text-xs shrink-0 cursor-context-menu ${getDogBadgeClass(dog.type, dog.trainingWeeks)}`}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      const rowType: RowType =
+                        expandedCell.label === "Not Yet IFT"
+                          ? "notYetIft"
+                          : expandedCell.label === "Graduated"
+                            ? "graduated"
+                            : expandedCell.label === "Dropped Out"
+                              ? "droppedOut"
+                              : expandedCell.label === data.parkingLot?.trainer.name
+                                ? "parkingLot"
+                                : "trainer";
+                      setExpandedCell(null);
+                      setContextMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        dog,
+                        weekStart: expandedCell.weekStart,
+                        rowType,
+                      });
+                    }}
+                  >
+                    {dog.name}
+                    <span className="ml-1 opacity-70">
+                      w{dog.trainingWeeks}
+                    </span>
+                  </Badge>
                 ))}
               </div>
               <p className="text-sm text-muted-foreground mt-2">
@@ -764,12 +767,34 @@ export function ForecastGrid({
             >
               Rename…
             </button>
+            {contextMenu.rowType === "trainer" && (
+              <button
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                onClick={async () => {
+                  try {
+                    await moveToParkingLot({
+                      dogId: contextMenu.dog.id,
+                      weekStartDate: contextMenu.weekStart.split("T")[0],
+                    });
+                    setContextMenu(null);
+                    refreshData();
+                  } catch (err) {
+                    setDropError(err instanceof Error ? err.message : "Failed to move to parking lot");
+                    setTimeout(() => setDropError(null), 4000);
+                    setContextMenu(null);
+                  }
+                }}
+              >
+                Move to parking lot
+              </button>
+            )}
             {contextMenu.dog.type !== "dropout" && (
               <button
                 type="button"
                 className="w-full px-3 py-2 text-left text-sm text-destructive hover:bg-accent hover:text-accent-foreground"
                 onClick={async () => {
-                  await markDogDropout(contextMenu.dog.id);
+                  await markDogDropout(contextMenu.dog.id, contextMenu.weekStart.split("T")[0]);
                   setContextMenu(null);
                   refreshData();
                 }}
@@ -847,6 +872,5 @@ export function ForecastGrid({
           </div>
         )}
       </div>
-    </TooltipProvider>
   );
 }

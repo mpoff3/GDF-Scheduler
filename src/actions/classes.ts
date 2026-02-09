@@ -70,7 +70,7 @@ export async function scheduleClass(data: {
       });
 
       for (const a of trainingAssignments) {
-        if (a.trainerId == null || !a.trainer) continue;
+        if (!a.trainer) continue;
         displacedDogs.push({
           dogId: a.dogId,
           dogName: a.dog.name,
@@ -134,22 +134,16 @@ export async function confirmClass(data: {
     await syncDogStatus(a.dogId);
   }
 
-  // Handle displaced dogs: pause = move to parking lot (trainerId null), remove = delete assignment
+  // Handle displaced dogs: both "pause" (parking lot) and "remove" delete the assignment.
+  // The dog is implicitly in the parking lot when they have no assignment for that week.
   // Safety: never overwrite a class dog's assignment
   const classDogIds = new Set(data.assignments.map((a) => a.dogId));
   for (const d of data.displacedActions) {
     if (classDogIds.has(d.dogId)) continue; // skip class dogs
     const weekDate = fromDateString(d.weekStartDate);
-    if (d.action === "pause") {
-      await prisma.assignment.updateMany({
-        where: { dogId: d.dogId, weekStartDate: weekDate },
-        data: { trainerId: null, type: "paused" },
-      });
-    } else {
-      await prisma.assignment.deleteMany({
-        where: { dogId: d.dogId, weekStartDate: weekDate },
-      });
-    }
+    await prisma.assignment.deleteMany({
+      where: { dogId: d.dogId, weekStartDate: weekDate },
+    });
     await syncDogStatus(d.dogId);
   }
 
@@ -164,7 +158,7 @@ export async function updateClass(data: {
   assignments: { dogId: number; trainerId: number }[];
   displacedActions: { dogId: number; weekStartDate: string; action: "pause" | "remove" }[];
 }) {
-  const startDate = getMonday(fromDateString(data.startDate));
+  const newStartDate = getMonday(fromDateString(data.startDate));
 
   const cls = await prisma.class.findUnique({
     where: { id: data.classId },
@@ -172,10 +166,12 @@ export async function updateClass(data: {
   });
   if (!cls) throw new Error("Class not found");
 
-  // Remove old class assignments and their assignment rows
+  const oldStartDate = cls.startDate;
+
+  // Remove old class assignments and their assignment rows (using OLD start date)
   for (const ca of cls.classAssignments) {
     for (let w = 0; w < CLASS_DURATION_WEEKS; w++) {
-      const weekDate = addWeeks(startDate, w);
+      const weekDate = addWeeks(oldStartDate, w);
       await prisma.assignment.deleteMany({
         where: {
           dogId: ca.dogId,
@@ -189,7 +185,13 @@ export async function updateClass(data: {
     where: { classId: data.classId },
   });
 
-  // Create new class assignments and assignment rows (same as confirmClass)
+  // Update class start date
+  await prisma.class.update({
+    where: { id: data.classId },
+    data: { startDate: newStartDate },
+  });
+
+  // Create new class assignments and assignment rows (using NEW start date)
   for (const a of data.assignments) {
     await prisma.classAssignment.create({
       data: {
@@ -200,7 +202,7 @@ export async function updateClass(data: {
     });
 
     for (let w = 0; w < CLASS_DURATION_WEEKS; w++) {
-      const weekDate = addWeeks(startDate, w);
+      const weekDate = addWeeks(newStartDate, w);
       await prisma.assignment.upsert({
         where: {
           dogId_weekStartDate: {
@@ -224,22 +226,16 @@ export async function updateClass(data: {
     await syncDogStatus(a.dogId);
   }
 
-  // Handle displaced dogs: pause = move to parking lot (trainerId null), remove = delete assignment
+  // Handle displaced dogs: both "pause" (parking lot) and "remove" delete the assignment.
+  // The dog is implicitly in the parking lot when they have no assignment for that week.
   // Safety: never overwrite a class dog's assignment
   const updatedClassDogIds = new Set(data.assignments.map((a) => a.dogId));
   for (const d of data.displacedActions) {
     if (updatedClassDogIds.has(d.dogId)) continue; // skip class dogs
     const weekDate = fromDateString(d.weekStartDate);
-    if (d.action === "pause") {
-      await prisma.assignment.updateMany({
-        where: { dogId: d.dogId, weekStartDate: weekDate },
-        data: { trainerId: null, type: "paused" },
-      });
-    } else {
-      await prisma.assignment.deleteMany({
-        where: { dogId: d.dogId, weekStartDate: weekDate },
-      });
-    }
+    await prisma.assignment.deleteMany({
+      where: { dogId: d.dogId, weekStartDate: weekDate },
+    });
     await syncDogStatus(d.dogId);
   }
 
