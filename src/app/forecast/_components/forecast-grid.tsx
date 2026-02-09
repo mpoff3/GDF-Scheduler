@@ -391,12 +391,6 @@ export function ForecastGrid({
 
         <div className="flex flex-wrap gap-3 text-xs">
           <span className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded bg-amber-100 border border-amber-300" /> Recall week
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded bg-green-100 border border-green-300" /> Class week
-          </span>
-          <span className="flex items-center gap-1">
             <span className="w-3 h-3 rounded bg-blue-200 border border-blue-300" /> Training
           </span>
           <span className="flex items-center gap-1">
@@ -517,7 +511,7 @@ export function ForecastGrid({
               ))}
               {data.parkingLot && (
                 <tr className="bg-muted/30">
-                  <td className="p-2 font-medium sticky left-0 bg-muted/50 border border-gray-300 z-10">
+                  <td className="p-2 font-medium sticky left-0 bg-muted border border-gray-300 z-10">
                     {data.parkingLot.trainer.name}
                   </td>
                   {data.weekStarts.map((ws) => {
