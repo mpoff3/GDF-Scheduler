@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { dogSchema, recallSchema } from "@/lib/validators";
 import { fromDateString, addWeeks, toDateString } from "@/lib/dates";
 import { MAX_TRAINING_DOGS_PER_TRAINER, MIN_TRAINING_WEEKS } from "@/lib/constants";
+import { syncDogStatus } from "@/actions/assignments";
 
 export async function createDog(formData: FormData) {
   const parsed = dogSchema.parse({
@@ -13,12 +14,13 @@ export async function createDog(formData: FormData) {
     initialTrainingWeeks: formData.get("initialTrainingWeeks") || 0,
   });
 
-  await prisma.dog.create({
+  const dog = await prisma.dog.create({
     data: {
       name: parsed.name,
       initialTrainingWeeks: parsed.initialTrainingWeeks,
     },
   });
+  await syncDogStatus(dog.id);
   revalidatePath("/dogs");
   redirect("/dogs");
 }
@@ -36,6 +38,7 @@ export async function updateDog(id: number, formData: FormData) {
       initialTrainingWeeks: parsed.initialTrainingWeeks,
     },
   });
+  await syncDogStatus(id);
   revalidatePath("/dogs");
   redirect("/dogs");
 }
@@ -125,6 +128,7 @@ export async function scheduleRecall(data: {
         },
       });
     }
+    await syncDogStatus(dog.id);
   }
 
   revalidatePath("/dogs");
