@@ -17,16 +17,20 @@ export async function getDogs() {
     },
   });
 
-  return dogs.map((dog) => ({
-    id: dog.id,
-    name: dog.name,
-    status: dog.status,
-    initialTrainingWeeks: dog.initialTrainingWeeks,
-    recallWeekStartDate: dog.recallWeekStartDate,
-    createdAt: dog.createdAt,
-    updatedAt: dog.updatedAt,
-    cumulativeTrainingWeeks: dog.initialTrainingWeeks + dog.assignments.length,
-  }));
+  return dogs
+    .map((dog) => ({
+      id: dog.id,
+      name: dog.name,
+      status: dog.status,
+      initialTrainingWeeks: dog.initialTrainingWeeks,
+      recallWeekStartDate: dog.recallWeekStartDate,
+      createdAt: dog.createdAt,
+      updatedAt: dog.updatedAt,
+      cumulativeTrainingWeeks: dog.initialTrainingWeeks + dog.assignments.length,
+    }))
+    .sort((a, b) =>
+      (a.name ?? "").localeCompare(b.name ?? "", undefined, { sensitivity: "base" })
+    );
 }
 
 export async function getDogById(id: number) {
