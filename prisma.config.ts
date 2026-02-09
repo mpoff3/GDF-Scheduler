@@ -9,6 +9,7 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // Use direct connection for CLI (migrate, db push). Pooler can hang on migrate.
+    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"],
   },
 });
