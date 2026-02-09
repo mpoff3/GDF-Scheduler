@@ -75,7 +75,7 @@ export async function getDogsReadyForClass(asOfDate?: Date) {
     where: {
       OR: [
         // Dogs currently in training or ready for class
-        { status: { in: ["in_training", "ready_for_class"] } },
+        { status: { in: ["in_training", "ready_for_class", "paused"] } },
         // Not-yet-IFT dogs whose recall week is on or before the target date
         // (they will be actively training by then and may have enough weeks)
         ...(isClassDate
@@ -100,7 +100,7 @@ export async function getDogsReadyForClass(asOfDate?: Date) {
 
   // When scheduling for a future date, exclude dogs that will be graduated
   // by then. A dog graduates the week after their last class assignment.
-  let graduatedIds = new Set<number>();
+  const graduatedIds = new Set<number>();
   if (isClassDate) {
     const dogIds = dogs.map((d) => d.id);
     if (dogIds.length > 0) {

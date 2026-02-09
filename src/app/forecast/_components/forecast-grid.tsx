@@ -435,12 +435,12 @@ export function ForecastGrid({
 
         <div
           ref={scrollContainerRef}
-          className="overflow-x-auto border border-gray-300 rounded-lg"
+          className="overflow-auto max-h-[calc(100vh-12rem)] border border-gray-300 rounded-lg"
         >
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-muted/50">
-                <th className="text-left p-2 font-medium sticky left-0 bg-muted min-w-[120px] border border-gray-300 z-10">
+                <th className="text-left p-2 font-medium sticky left-0 top-0 bg-muted min-w-[120px] border border-gray-300 z-30">
                   Trainer
                 </th>
                 {data.weekStarts.map((ws) => {
@@ -451,10 +451,8 @@ export function ForecastGrid({
                     <th
                       key={ws}
                       data-week-date={ws.split("T")[0]}
-                      className={`text-center p-2 font-medium min-w-[120px] border border-gray-300 ${
-                        classWeek ? "bg-green-50/80 border-green-200" : ""
-                      } ${recall && !classWeek ? "bg-amber-50/80 border-amber-200" : ""} ${
-                        recall && classWeek ? "border-amber-200" : ""
+                      className={`text-center p-2 font-medium min-w-[120px] border border-gray-300 sticky top-0 z-20 ${
+                        classWeek ? "bg-green-50 border-green-200" : recall ? "bg-amber-50 border-amber-200" : "bg-muted"
                       } ${isToday ? "border-t-[3px] border-t-blue-500" : ""}`}
                     >
                       <div className="flex flex-col items-center gap-0.5">

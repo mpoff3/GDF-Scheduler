@@ -215,11 +215,19 @@ export async function syncDogStatus(dogId: number) {
   });
   const totalWeeks = completedTrainingWeeks + dog.initialTrainingWeeks;
 
-  // Dog with no training assignments stays paused (e.g. "idk yet" recall or just added)
+  // Dog with no training assignments: if they already have enough prior weeks,
+  // they should still be class-ready; otherwise keep paused.
   const hasAnyTrainingAssignment = await prisma.assignment.count({
     where: { dogId, type: "training" },
   });
   if (hasAnyTrainingAssignment === 0) {
+    if (dog.initialTrainingWeeks >= MIN_TRAINING_WEEKS) {
+      await prisma.dog.update({
+        where: { id: dogId },
+        data: { status: "ready_for_class" },
+      });
+      return;
+    }
     await prisma.dog.update({
       where: { id: dogId },
       data: { status: "paused" },
