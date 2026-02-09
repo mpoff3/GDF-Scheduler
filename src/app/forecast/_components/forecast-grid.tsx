@@ -10,9 +10,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { AssignmentEditor } from "./assignment-editor";
 import { ParkingLotScheduler } from "./parking-lot-scheduler";
 import { createAssignment, moveToParkingLot } from "@/actions/assignments";
+import { markDogDropout, renameDog } from "@/actions/dogs";
 import { MIN_TRAINING_WEEKS, MAX_TRAINING_WEEKS } from "@/lib/constants";
 import { getMonday } from "@/lib/dates";
 import type { ForecastData } from "@/queries/forecast";
@@ -130,6 +133,14 @@ export function ForecastGrid({
     trainingWeeks: number;
     weekStart: string;
   } | null>(null);
+  type DogInCell = ForecastData["trainers"][number]["weeks"][string]["dogs"][number];
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    dog: DogInCell;
+  } | null>(null);
+  const [renameDialog, setRenameDialog] = useState<{ id: number; name: string } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const loadingLeftRef = useRef(false);
@@ -154,6 +165,23 @@ export function ForecastGrid({
       container.scrollLeft += colRect.left - containerRect.left - 140;
     }
   }, [todayStr]);
+
+  // Close context menu on click outside or scroll
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const handleClick = (e: MouseEvent) => {
+      if (contextMenuRef.current?.contains(e.target as Node)) return;
+      close();
+    };
+    const handleScroll = () => close();
+    document.addEventListener("mousedown", handleClick, true);
+    document.addEventListener("scroll", handleScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", handleClick, true);
+      document.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [contextMenu]);
 
   // Auto-scroll to today on mount
   useEffect(() => {
@@ -315,6 +343,7 @@ export function ForecastGrid({
     cellLabel: string,
     weekStart: string,
     onDogClick?: (dog: ForecastData["trainers"][number]["weeks"][string]["dogs"][number]) => void,
+    onDogContextMenu?: (e: React.MouseEvent, dog: DogInCell) => void,
   ) {
     const sorted = [...dogs].sort((a, b) =>
       a.name.localeCompare(b.name, "en", { sensitivity: "base" })
@@ -343,6 +372,11 @@ export function ForecastGrid({
                   e.stopPropagation();
                   onDogClick(dog);
                 } : undefined}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDogContextMenu?.(e, dog);
+                }}
                 className={`text-xs cursor-grab active:cursor-grabbing shrink-0 ${getDogBadgeClass(dog.type, dog.trainingWeeks)} ${draggedDogId === dog.id ? "opacity-50" : ""} ${onDogClick ? "hover:ring-2 hover:ring-blue-400 cursor-pointer" : ""}`}
               >
                 {dog.name}
@@ -354,6 +388,7 @@ export function ForecastGrid({
             <TooltipContent>
               <p>Completed {dog.trainingWeeks} weeks of training so far</p>
               {onDogClick && <p className="text-xs opacity-70">Click to schedule</p>}
+              <p className="text-xs opacity-70">Right-click for more options</p>
             </TooltipContent>
           </Tooltip>
         ))}
@@ -503,7 +538,7 @@ export function ForecastGrid({
                           if (dogId) handleDrop(row.trainer.id, ws, dogId, trainerHasClassThisWeek);
                         }}
                       >
-                        {cell?.dogs && renderDogBadges(cell.dogs, row.trainer.name, ws)}
+                        {cell?.dogs && renderDogBadges(cell.dogs, row.trainer.name, ws, undefined, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
                       </td>
                     );
                   })}
@@ -552,7 +587,7 @@ export function ForecastGrid({
                             trainingWeeks: dog.trainingWeeks,
                             weekStart: ws,
                           });
-                        })}
+                        }, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
                       </td>
                     );
                   })}
@@ -573,7 +608,7 @@ export function ForecastGrid({
                         key={ws}
                         className={`p-1.5 align-top border border-gray-300 text-center ${recall && !classWeek ? "bg-amber-50/50 border-amber-200/70" : ""}`}
                       >
-                        {cell?.dogs && renderDogBadges(cell.dogs, "Not Yet IFT", ws)}
+                        {cell?.dogs && renderDogBadges(cell.dogs, "Not Yet IFT", ws, undefined, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
                       </td>
                     );
                   })}
@@ -594,7 +629,7 @@ export function ForecastGrid({
                         key={ws}
                         className={`p-1.5 align-top border border-gray-300 text-center ${recall && !classWeek ? "bg-amber-50/50 border-amber-200/70" : ""}`}
                       >
-                        {cell?.dogs && renderDogBadges(cell.dogs, "Graduated", ws)}
+                        {cell?.dogs && renderDogBadges(cell.dogs, "Graduated", ws, undefined, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
                       </td>
                     );
                   })}
@@ -615,7 +650,7 @@ export function ForecastGrid({
                         key={ws}
                         className={`p-1.5 align-top border border-gray-300 text-center ${recall && !classWeek ? "bg-amber-50/50 border-amber-200/70" : ""}`}
                       >
-                        {cell?.dogs && renderDogBadges(cell.dogs, "Dropped Out", ws)}
+                        {cell?.dogs && renderDogBadges(cell.dogs, "Dropped Out", ws, undefined, (e, dog) => setContextMenu({ x: e.clientX, y: e.clientY, dog }))}
                       </td>
                     );
                   })}
@@ -686,7 +721,12 @@ export function ForecastGrid({
                     <TooltipTrigger asChild>
                       <Badge
                         variant="outline"
-                        className={`text-xs shrink-0 ${getDogBadgeClass(dog.type, dog.trainingWeeks)}`}
+                        className={`text-xs shrink-0 cursor-context-menu ${getDogBadgeClass(dog.type, dog.trainingWeeks)}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setExpandedCell(null);
+                          setContextMenu({ x: e.clientX, y: e.clientY, dog });
+                        }}
                       >
                         {dog.name}
                         <span className="ml-1 opacity-70">
@@ -696,6 +736,7 @@ export function ForecastGrid({
                     </TooltipTrigger>
                     <TooltipContent>
                       <p>Completed {dog.trainingWeeks} weeks of training so far</p>
+                      <p className="text-xs opacity-70">Right-click for more options</p>
                     </TooltipContent>
                   </Tooltip>
                 ))}
@@ -703,6 +744,83 @@ export function ForecastGrid({
               <p className="text-sm text-muted-foreground mt-2">
                 {expandedCell.dogs.length} dog{expandedCell.dogs.length !== 1 ? "s" : ""} total
               </p>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {contextMenu && (
+          <div
+            ref={contextMenuRef}
+            className="fixed z-50 min-w-[160px] rounded-md border bg-popover py-1 shadow-md"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button
+              type="button"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setRenameDialog({ id: contextMenu.dog.id, name: contextMenu.dog.name });
+                setContextMenu(null);
+              }}
+            >
+              Rename…
+            </button>
+            {contextMenu.dog.type !== "dropout" && (
+              <button
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm text-destructive hover:bg-accent hover:text-accent-foreground"
+                onClick={async () => {
+                  await markDogDropout(contextMenu.dog.id);
+                  setContextMenu(null);
+                  refreshData();
+                }}
+              >
+                Mark as dropout
+              </button>
+            )}
+          </div>
+        )}
+
+        {renameDialog && (
+          <Dialog open onOpenChange={(open) => !open && setRenameDialog(null)}>
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Rename dog</DialogTitle>
+              </DialogHeader>
+              <form
+                className="grid gap-4 py-2"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget;
+                  const nameInput = form.querySelector<HTMLInputElement>('input[name="dogName"]');
+                  const newName = nameInput?.value?.trim();
+                  if (!newName) return;
+                  try {
+                    await renameDog(renameDialog.id, newName);
+                    setRenameDialog(null);
+                    refreshData();
+                  } catch (err) {
+                    setDropError(err instanceof Error ? err.message : "Failed to rename");
+                    setTimeout(() => setDropError(null), 4000);
+                  }
+                }}
+              >
+                <div className="grid gap-2">
+                  <Label htmlFor="dogName">Name</Label>
+                  <Input
+                    id="dogName"
+                    name="dogName"
+                    defaultValue={renameDialog.name}
+                    placeholder="Dog name"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setRenameDialog(null)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">Save</Button>
+                </div>
+              </form>
             </DialogContent>
           </Dialog>
         )}

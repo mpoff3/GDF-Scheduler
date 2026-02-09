@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { dogSchema, recallSchema } from "@/lib/validators";
 import { fromDateString, addWeeks, toDateString } from "@/lib/dates";
@@ -46,6 +47,16 @@ export async function updateDog(id: number, formData: FormData) {
   await syncDogStatus(id);
   revalidatePath("/dogs");
   redirect("/dogs");
+}
+
+export async function renameDog(id: number, name: string) {
+  const parsed = z.string().min(1, "Name is required").max(100).parse(name.trim());
+  await prisma.dog.update({
+    where: { id },
+    data: { name: parsed },
+  });
+  revalidatePath("/dogs");
+  revalidatePath("/forecast");
 }
 
 export async function deleteDog(id: number) {
