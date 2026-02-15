@@ -162,16 +162,12 @@ export async function syncDogStatus(dogId: number) {
     return;
   }
 
-  // Not Yet IFT: transition to in_training once recall week has been reached
+  // Not Yet IFT: once recall week has been reached, fall through to
+  // assignment-based status determination below (don't blindly set in_training).
+  // Keep recallWeekStartDate so the forecast can show the dog in "Not Yet IFT" for past weeks.
   if (dog.status === "not_yet_ift" && dog.recallWeekStartDate) {
     if (dog.recallWeekStartDate > startOfCurrentWeek) return; // still future, keep not_yet_ift
-    await prisma.dog.update({
-      where: { id: dogId },
-      data: { status: "in_training", recallWeekStartDate: null },
-    });
-    const updated = await prisma.dog.findUnique({ where: { id: dogId } });
-    if (!updated) return;
-    dog = updated;
+    // Fall through — the code below will set the correct status based on assignments
   }
 
   // Check if currently in class (only if today falls within a class period, not future)
@@ -241,9 +237,14 @@ export async function syncDogStatus(dogId: number) {
       data: { status: "ready_for_class" },
     });
   } else {
+    // Check if dog has a training assignment for the current week.
+    // If yes → in_training; if no → paused (started but idle this week).
+    const currentWeekTraining = await prisma.assignment.findFirst({
+      where: { dogId, type: "training", weekStartDate: startOfCurrentWeek },
+    });
     await prisma.dog.update({
       where: { id: dogId },
-      data: { status: "in_training" },
+      data: { status: currentWeekTraining ? "in_training" : "paused" },
     });
   }
 }

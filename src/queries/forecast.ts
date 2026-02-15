@@ -131,10 +131,13 @@ export async function getForecastData(
   });
 
   // --- Not Yet IFT row ---
-  // Dogs with status "not_yet_ift" appear in this row for weeks BEFORE their recall date.
+  // Dogs with a recallWeekStartDate appear in this row for weeks BEFORE their recall date.
   // From their recall date onward they have regular assignments in trainer/parking lot rows.
+  // We filter by recallWeekStartDate only (not status) because the dog's current status may
+  // have already transitioned to "in_training" once the recall week arrived, but the forecast
+  // is a multi-week view and should still show the dog as "Not Yet IFT" for past weeks.
   const notYetIftDogs = allDogs.filter(
-    (d) => d.status === "not_yet_ift" && d.recallWeekStartDate
+    (d) => d.recallWeekStartDate
   );
   const notYetIftWeeks: Record<string, ForecastCell> = {};
   for (const weekStart of weekStarts) {
