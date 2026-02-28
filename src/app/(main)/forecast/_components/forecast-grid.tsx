@@ -442,7 +442,7 @@ export function ForecastGrid({
             size="sm"
             onClick={scrollToToday}
           >
-            Today
+            Current Week
           </Button>
           <span className="text-sm text-muted-foreground">
             Scroll left and right to navigate weeks
@@ -492,7 +492,7 @@ export function ForecastGrid({
                       <div className="flex flex-col items-center gap-0.5">
                         {isToday && (
                           <span className="text-[10px] font-bold uppercase tracking-wide text-blue-600">
-                            Today
+                            Current Week
                           </span>
                         )}
                         <span>{formatWeek(ws)}</span>

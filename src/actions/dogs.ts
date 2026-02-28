@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { dogSchema, recallSchema } from "@/lib/validators";
+import { dogSchema, recallSchema, recallEventUpdateSchema } from "@/lib/validators";
 import { fromDateString, addWeeks, toDateString, getMonday } from "@/lib/dates";
 import { MAX_TRAINING_DOGS_PER_TRAINER, MIN_TRAINING_WEEKS } from "@/lib/constants";
 import { syncDogStatus } from "@/actions/assignments";
@@ -201,6 +201,188 @@ export async function scheduleRecall(data: {
     // Dog is implicitly in parking lot for all weeks.
   }
 
+  revalidatePath("/dogs");
+  revalidatePath("/forecast");
+}
+
+export async function updateRecallEvent(data: {
+  originalWeekStartDate: string;
+  weekStartDate: string;
+  dogs: { id?: number; name: string; trainerId: number }[];
+}) {
+  const parsed = recallEventUpdateSchema.parse(data);
+  const originalWeek = getMonday(fromDateString(parsed.originalWeekStartDate));
+  const newWeek = getMonday(fromDateString(parsed.weekStartDate));
+  const defaultWeeks = MIN_TRAINING_WEEKS;
+
+  const existingIds = new Set(
+    parsed.dogs.filter((d) => d.id != null).map((d) => d.id!)
+  );
+
+  const currentDogs = await prisma.dog.findMany({
+    where: { recallWeekStartDate: originalWeek },
+    select: { id: true },
+  });
+  const currentIds = new Set(currentDogs.map((d) => d.id));
+  const removedIds = [...currentIds].filter((id) => !existingIds.has(id));
+
+  for (const dogId of removedIds) {
+    await prisma.dog.update({
+      where: { id: dogId },
+      data: { recallWeekStartDate: null },
+    });
+    await prisma.assignment.deleteMany({
+      where: {
+        dogId,
+        weekStartDate: { gte: originalWeek },
+      },
+    });
+    await syncDogStatus(dogId);
+  }
+
+  const dogsWithTrainer = parsed.dogs.filter((d) => d.trainerId > 0);
+  const trainerDogCounts = new Map<number, number>();
+  for (const dog of dogsWithTrainer) {
+    trainerDogCounts.set(
+      dog.trainerId,
+      (trainerDogCounts.get(dog.trainerId) || 0) + 1
+    );
+  }
+
+  const trainerClassWeeks = new Map<number, Set<string>>();
+  for (const [trainerId] of trainerDogCounts) {
+    const classAssignments = await prisma.assignment.findMany({
+      where: {
+        trainerId,
+        weekStartDate: {
+          gte: newWeek,
+          lt: addWeeks(newWeek, defaultWeeks),
+        },
+        type: "class",
+      },
+      select: { weekStartDate: true },
+    });
+    trainerClassWeeks.set(
+      trainerId,
+      new Set(classAssignments.map((a) => a.weekStartDate.toISOString()))
+    );
+  }
+
+  for (const [trainerId, newCount] of trainerDogCounts) {
+    const classWeeks = trainerClassWeeks.get(trainerId) ?? new Set<string>();
+    for (let w = 0; w < defaultWeeks; w++) {
+      const weekDate = addWeeks(newWeek, w);
+      if (classWeeks.has(weekDate.toISOString())) continue;
+      const existingCount = await prisma.assignment.count({
+        where: {
+          trainerId,
+          weekStartDate: weekDate,
+          type: "training",
+        },
+      });
+      if (existingCount + newCount > MAX_TRAINING_DOGS_PER_TRAINER) {
+        const trainer = await prisma.trainer.findUnique({
+          where: { id: trainerId },
+        });
+        const weekStr = toDateString(weekDate);
+        throw new Error(
+          `Trainer ${trainer?.name || trainerId} would exceed capacity for week of ${weekStr} (${existingCount + newCount}/${MAX_TRAINING_DOGS_PER_TRAINER})`
+        );
+      }
+    }
+  }
+
+  for (const dogData of parsed.dogs) {
+    const hasTrainer = dogData.trainerId > 0;
+
+    if (dogData.id != null) {
+      await prisma.dog.update({
+        where: { id: dogData.id },
+        data: {
+          name: dogData.name,
+          recallWeekStartDate: newWeek,
+        },
+      });
+      await prisma.assignment.deleteMany({
+        where: {
+          dogId: dogData.id,
+          weekStartDate: { gte: originalWeek },
+        },
+      });
+      if (hasTrainer) {
+        const classWeeks =
+          trainerClassWeeks.get(dogData.trainerId) ?? new Set<string>();
+        for (let w = 0; w < defaultWeeks; w++) {
+          const weekDate = addWeeks(newWeek, w);
+          const isClassWeek = classWeeks.has(weekDate.toISOString());
+          if (!isClassWeek) {
+            await prisma.assignment.create({
+              data: {
+                dogId: dogData.id,
+                trainerId: dogData.trainerId,
+                weekStartDate: weekDate,
+                type: "training",
+              },
+            });
+          }
+        }
+      }
+      await syncDogStatus(dogData.id);
+    } else {
+      const dog = await prisma.dog.create({
+        data: {
+          name: dogData.name,
+          initialTrainingWeeks: 0,
+          status: "not_yet_ift",
+          recallWeekStartDate: newWeek,
+        },
+      });
+      if (hasTrainer) {
+        const classWeeks =
+          trainerClassWeeks.get(dogData.trainerId) ?? new Set<string>();
+        for (let w = 0; w < defaultWeeks; w++) {
+          const weekDate = addWeeks(newWeek, w);
+          const isClassWeek = classWeeks.has(weekDate.toISOString());
+          if (!isClassWeek) {
+            await prisma.assignment.create({
+              data: {
+                dogId: dog.id,
+                trainerId: dogData.trainerId,
+                weekStartDate: weekDate,
+                type: "training",
+              },
+            });
+          }
+        }
+      }
+    }
+  }
+
+  revalidatePath("/recalls");
+  revalidatePath("/dogs");
+  revalidatePath("/forecast");
+}
+
+export async function deleteRecallEvent(weekStartDate: string) {
+  const weekStart = getMonday(fromDateString(weekStartDate));
+  const dogs = await prisma.dog.findMany({
+    where: { recallWeekStartDate: weekStart },
+    select: { id: true },
+  });
+  for (const dog of dogs) {
+    await prisma.dog.update({
+      where: { id: dog.id },
+      data: { recallWeekStartDate: null },
+    });
+    await prisma.assignment.deleteMany({
+      where: {
+        dogId: dog.id,
+        weekStartDate: { gte: weekStart },
+      },
+    });
+    await syncDogStatus(dog.id);
+  }
+  revalidatePath("/recalls");
   revalidatePath("/dogs");
   revalidatePath("/forecast");
 }

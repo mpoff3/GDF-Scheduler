@@ -33,6 +33,19 @@ export const recallSchema = z.object({
   ).min(1, "At least one dog is required"),
 });
 
+/** Edit payload for updating an existing recall event (batch) */
+export const recallEventUpdateSchema = z.object({
+  originalWeekStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  weekStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  dogs: z.array(
+    z.object({
+      id: z.coerce.number().int().positive().optional(),
+      name: z.string().min(1, "Name is required"),
+      trainerId: z.coerce.number().int().min(0),
+    })
+  ),
+});
+
 export const classScheduleSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   assignments: z.array(

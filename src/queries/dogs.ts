@@ -1,5 +1,19 @@
 import { prisma } from "@/lib/prisma";
-import { getMonday, addWeeks } from "@/lib/dates";
+import { getMonday, addWeeks, toDateString } from "@/lib/dates";
+
+/** One dog in a recall event (for list/edit) */
+export type RecallEventDog = {
+  id: number;
+  name: string;
+  trainerId: number | null;
+  trainerName: string | null;
+};
+
+/** Recall event grouped by week start date */
+export type RecallEvent = {
+  weekStartDate: string;
+  dogs: RecallEventDog[];
+};
 
 export async function getDogs() {
   const now = new Date();
@@ -135,4 +149,94 @@ export async function getDogsReadyForClass(asOfDate?: Date) {
       trainingWeeks: dog.assignments.length + dog.initialTrainingWeeks,
     }))
     .filter((dog) => dog.trainingWeeks >= 14);
+}
+
+/**
+ * Returns recall events grouped by recall week (Monday). Each event includes
+ * dogs and their trainer assignment for that week (from training assignments).
+ */
+export async function getRecallEvents(): Promise<RecallEvent[]> {
+  const dogs = await prisma.dog.findMany({
+    where: { recallWeekStartDate: { not: null } },
+    select: { id: true, name: true, recallWeekStartDate: true },
+    orderBy: { name: "asc" },
+  });
+  if (dogs.length === 0) return [];
+
+  const assignments = await prisma.assignment.findMany({
+    where: {
+      dogId: { in: dogs.map((d) => d.id) },
+      weekStartDate: { in: dogs.map((d) => d.recallWeekStartDate!) },
+      type: "training",
+    },
+    include: { trainer: { select: { id: true, name: true } } },
+  });
+
+  const byWeek = new Map<
+    string,
+    { dogs: RecallEventDog[] }
+  >();
+  for (const dog of dogs) {
+    const week = dog.recallWeekStartDate!;
+    const key = toDateString(week);
+    if (!byWeek.has(key))
+      byWeek.set(key, { dogs: [] });
+    const assign = assignments.find(
+      (a) =>
+        a.dogId === dog.id &&
+        a.weekStartDate.getTime() === week.getTime()
+    );
+    byWeek.get(key)!.dogs.push({
+      id: dog.id,
+      name: dog.name,
+      trainerId: assign?.trainerId ?? null,
+      trainerName: assign?.trainer?.name ?? null,
+    });
+  }
+  return Array.from(byWeek.entries())
+    .sort((a, b) => b[0].localeCompare(a[0])) // most recent first
+    .map(([weekStartDate, v]) => ({ weekStartDate, dogs: v.dogs }));
+}
+
+/**
+ * Returns a single recall event for the given week start (YYYY-MM-DD), or null.
+ * Normalizes the given date to Monday of that week.
+ */
+export async function getRecallEventByWeekStart(
+  weekStartDateStr: string
+): Promise<RecallEvent | null> {
+  const weekStart = getMonday(new Date(weekStartDateStr + "T00:00:00.000Z"));
+  const normalizedKey = toDateString(weekStart);
+  const dogs = await prisma.dog.findMany({
+    where: {
+      recallWeekStartDate: weekStart,
+    },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  if (dogs.length === 0) return null;
+
+  const assignments = await prisma.assignment.findMany({
+    where: {
+      dogId: { in: dogs.map((d) => d.id) },
+      weekStartDate: weekStart,
+      type: "training",
+    },
+    include: { trainer: { select: { id: true, name: true } } },
+  });
+  const assignByDog = new Map(
+    assignments.map((a) => [a.dogId, a])
+  );
+
+  const recallDogs: RecallEventDog[] = dogs.map((d) => {
+    const assign = assignByDog.get(d.id);
+    return {
+      id: d.id,
+      name: d.name,
+      trainerId: assign?.trainerId ?? null,
+      trainerName: assign?.trainer?.name ?? null,
+    };
+  });
+
+  return { weekStartDate: normalizedKey, dogs: recallDogs };
 }

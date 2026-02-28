@@ -6,6 +6,7 @@ const navItems = [
   { href: "/trainers", label: "Trainers" },
   { href: "/dogs", label: "Dogs" },
   { href: "/classes", label: "Classes" },
+  { href: "/recalls", label: "Recalls" },
 ];
 
 export default function MainLayout({
