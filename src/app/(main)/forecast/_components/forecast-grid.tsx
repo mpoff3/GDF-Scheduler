@@ -13,7 +13,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AssignmentEditor } from "./assignment-editor";
 import { ParkingLotScheduler } from "./parking-lot-scheduler";
-import { createAssignment, moveToParkingLot } from "@/actions/assignments";
+import {
+  createAssignment,
+  moveToParkingLot,
+  moveAssignmentsFromWeekToTrainer,
+  moveAssignmentsFromWeekToParkingLot,
+} from "@/actions/assignments";
 import { markDogDropout, renameDog } from "@/actions/dogs";
 import { MIN_TRAINING_WEEKS, MAX_TRAINING_WEEKS } from "@/lib/constants";
 import { getMonday } from "@/lib/dates";
@@ -300,40 +305,66 @@ export function ForecastGrid({
     trainerId: number,
     weekStart: string,
     dogId: number,
-    trainerHasClassThisWeek?: boolean
+    trainerHasClassThisWeek?: boolean,
+    shiftMove?: boolean
   ) {
     setDragOverCell(null);
     setDraggedDogId(null);
     setDropError(null);
-    if (trainerHasClassThisWeek) {
+    if (trainerHasClassThisWeek && !shiftMove) {
       setDropError("Trainer is doing class this week; cannot assign a dog for training.");
       setTimeout(() => setDropError(null), 4000);
       return;
     }
     try {
-      await createAssignment({
-        dogId,
-        trainerId,
-        weekStartDate: weekStart.split("T")[0],
-        type: "training",
-      });
-      refreshData();
+      if (shiftMove) {
+        const result = await moveAssignmentsFromWeekToTrainer({
+          dogId,
+          fromWeekStartDate: weekStart.split("T")[0],
+          targetTrainerId: trainerId,
+        });
+        refreshData();
+        if (result.skippedCount > 0 && result.skippedReasons?.length) {
+          const msg =
+            result.movedCount > 0
+              ? `Moved ${result.movedCount} week(s). Skipped ${result.skippedCount}: ${result.skippedReasons.slice(0, 2).join("; ")}${result.skippedReasons.length > 2 ? "…" : ""}`
+              : `Could not move: ${result.skippedReasons[0]}`;
+          setDropError(msg);
+          setTimeout(() => setDropError(null), 5000);
+        }
+      } else {
+        await createAssignment({
+          dogId,
+          trainerId,
+          weekStartDate: weekStart.split("T")[0],
+          type: "training",
+        });
+        refreshData();
+      }
     } catch (err) {
       setDropError(err instanceof Error ? err.message : "Failed to assign dog");
       setTimeout(() => setDropError(null), 4000);
     }
   }
 
-  async function handleDropParkingLot(weekStart: string, dogId: number) {
+  async function handleDropParkingLot(weekStart: string, dogId: number, shiftMove?: boolean) {
     setDragOverCell(null);
     setDraggedDogId(null);
     setDropError(null);
     try {
-      await moveToParkingLot({
-        dogId,
-        weekStartDate: weekStart.split("T")[0],
-      });
-      refreshData();
+      if (shiftMove) {
+        await moveAssignmentsFromWeekToParkingLot({
+          dogId,
+          fromWeekStartDate: weekStart.split("T")[0],
+        });
+        refreshData();
+      } else {
+        await moveToParkingLot({
+          dogId,
+          weekStartDate: weekStart.split("T")[0],
+        });
+        refreshData();
+      }
     } catch (err) {
       setDropError(err instanceof Error ? err.message : "Failed to move to parking lot");
       setTimeout(() => setDropError(null), 4000);
@@ -405,7 +436,7 @@ export function ForecastGrid({
 
   return (
     <div className="space-y-4">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <Button
             variant="outline"
             size="sm"
@@ -415,6 +446,9 @@ export function ForecastGrid({
           </Button>
           <span className="text-sm text-muted-foreground">
             Scroll left and right to navigate weeks
+          </span>
+          <span className="text-sm text-muted-foreground">
+            Tip: Hold <kbd className="px-1 py-0.5 rounded bg-muted border text-xs font-mono">Shift</kbd> while dropping a dog to move this and future weeks (up to 14).
           </span>
         </div>
 
@@ -527,7 +561,14 @@ export function ForecastGrid({
                           e.preventDefault();
                           const dogId = Number(e.dataTransfer.getData("application/dog-id"));
                           const trainerHasClassThisWeek = cell?.dogs?.some((d) => d.type === "class");
-                          if (dogId) handleDrop(row.trainer.id, ws, dogId, trainerHasClassThisWeek);
+                          if (dogId)
+                            handleDrop(
+                              row.trainer.id,
+                              ws,
+                              dogId,
+                              trainerHasClassThisWeek,
+                              e.shiftKey
+                            );
                         }}
                       >
                         {cell?.dogs && renderDogBadges(cell.dogs, row.trainer.name, ws, undefined, (e, dog, weekStart, rowType) => setContextMenu({ x: e.clientX, y: e.clientY, dog, weekStart, rowType }), "trainer")}
@@ -569,7 +610,7 @@ export function ForecastGrid({
                         onDrop={(e) => {
                           e.preventDefault();
                           const dogId = Number(e.dataTransfer.getData("application/dog-id"));
-                          if (dogId) handleDropParkingLot(ws, dogId);
+                          if (dogId) handleDropParkingLot(ws, dogId, e.shiftKey);
                         }}
                       >
                         {cell?.dogs && renderDogBadges(cell.dogs, data.parkingLot.trainer.name, ws, (dog) => {

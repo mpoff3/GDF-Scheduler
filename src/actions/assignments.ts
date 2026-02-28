@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { assignmentSchema } from "@/lib/validators";
-import { fromDateString, getMonday, addWeeks } from "@/lib/dates";
+import { fromDateString, getMonday, addWeeks, toDateString } from "@/lib/dates";
 import { validateTrainerCapacity } from "@/queries/assignments";
 import { MIN_TRAINING_WEEKS } from "@/lib/constants";
 
@@ -144,6 +144,146 @@ export async function moveToParkingLot(data: {
   await syncDogStatus(data.dogId);
   revalidatePath("/forecast");
   revalidatePath("/dogs");
+}
+
+export type MoveFromWeekResult = {
+  movedCount: number;
+  skippedCount: number;
+  skippedReasons?: string[];
+};
+
+/**
+ * Get training assignment week dates for a dog from a given week onward, up to end of training (14 weeks).
+ * Always includes the drop week; then subsequent assignment weeks up to 14 total. Returns ISO date strings.
+ */
+async function getTrainingWeeksFromWeek(
+  dogId: number,
+  fromWeekStartDate: string
+): Promise<string[]> {
+  const fromWeek = fromDateString(fromWeekStartDate);
+  const fromWeekStr = toDateString(fromWeek);
+  const dog = await prisma.dog.findUnique({
+    where: { id: dogId },
+    select: { initialTrainingWeeks: true },
+  });
+  if (!dog) return [];
+
+  const countBeforeFrom = await prisma.assignment.count({
+    where: {
+      dogId,
+      type: "training",
+      weekStartDate: { lt: fromWeek },
+    },
+  });
+  const cumulativeAtFrom = dog.initialTrainingWeeks + countBeforeFrom;
+  if (cumulativeAtFrom >= MIN_TRAINING_WEEKS) return [];
+
+  const trainingAssignments = await prisma.assignment.findMany({
+    where: { dogId, type: "training", weekStartDate: { gte: fromWeek } },
+    orderBy: { weekStartDate: "asc" },
+    select: { weekStartDate: true },
+  });
+
+  const weekStarts: string[] = [fromWeekStr];
+  let cumulative = cumulativeAtFrom + 1;
+  for (const a of trainingAssignments) {
+    if (toDateString(a.weekStartDate) === fromWeekStr) continue;
+    if (cumulative >= MIN_TRAINING_WEEKS) break;
+    weekStarts.push(toDateString(a.weekStartDate));
+    cumulative += 1;
+  }
+  return weekStarts;
+}
+
+/**
+ * Shift+drop: move this week and all subsequent training weeks (up to 14 total) to the target trainer.
+ * Partial success: skips weeks where trainer is at capacity or doing class; returns summary.
+ */
+export async function moveAssignmentsFromWeekToTrainer(data: {
+  dogId: number;
+  fromWeekStartDate: string;
+  targetTrainerId: number;
+}): Promise<MoveFromWeekResult> {
+  const { dogId, fromWeekStartDate, targetTrainerId } = data;
+  const weekDates = await getTrainingWeeksFromWeek(dogId, fromWeekStartDate);
+  const skippedReasons: string[] = [];
+  let movedCount = 0;
+  let skippedCount = 0;
+
+  for (const weekDateStr of weekDates) {
+    const weekStart = fromDateString(weekDateStr);
+    const capacity = await validateTrainerCapacity(
+      targetTrainerId,
+      weekStart,
+      "training",
+      dogId
+    );
+    if (!capacity.valid) {
+      skippedCount += 1;
+      if (capacity.maxCount === 0) {
+        skippedReasons.push(`Week ${weekDateStr}: trainer doing class`);
+      } else {
+        skippedReasons.push(
+          `Week ${weekDateStr}: trainer at capacity (${capacity.currentCount}/${capacity.maxCount})`
+        );
+      }
+      continue;
+    }
+    await prisma.assignment.upsert({
+      where: {
+        dogId_weekStartDate: { dogId, weekStartDate: weekStart },
+      },
+      update: { trainerId: targetTrainerId, type: "training" },
+      create: {
+        dogId,
+        trainerId: targetTrainerId,
+        weekStartDate: weekStart,
+        type: "training",
+      },
+    });
+    movedCount += 1;
+  }
+
+  if (movedCount > 0 || skippedCount > 0) {
+    await syncDogStatus(dogId);
+    revalidatePath("/forecast");
+    revalidatePath("/dogs");
+  }
+
+  return {
+    movedCount,
+    skippedCount,
+    skippedReasons: skippedReasons.length > 0 ? skippedReasons : undefined,
+  };
+}
+
+/**
+ * Shift+drop to parking lot: remove this week and all subsequent training weeks (up to 14 total).
+ */
+export async function moveAssignmentsFromWeekToParkingLot(data: {
+  dogId: number;
+  fromWeekStartDate: string;
+}): Promise<MoveFromWeekResult> {
+  const { dogId, fromWeekStartDate } = data;
+  const weekDates = await getTrainingWeeksFromWeek(dogId, fromWeekStartDate);
+
+  if (weekDates.length === 0) {
+    return { movedCount: 0, skippedCount: 0 };
+  }
+
+  await prisma.assignment.deleteMany({
+    where: {
+      dogId,
+      type: "training",
+      weekStartDate: { in: weekDates.map((s) => fromDateString(s)) },
+    },
+  });
+
+  await syncDogStatus(dogId);
+  revalidatePath("/forecast");
+  revalidatePath("/dogs");
+
+  return { movedCount: weekDates.length, skippedCount: 0 };
 }
 
 export async function syncDogStatus(dogId: number) {
