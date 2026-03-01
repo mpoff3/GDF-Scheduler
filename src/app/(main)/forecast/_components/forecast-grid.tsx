@@ -510,10 +510,7 @@ export function ForecastGrid({
             Current Week
           </Button>
           <span className="text-sm text-muted-foreground">
-            Scroll left and right to navigate weeks
-          </span>
-          <span className="text-sm text-muted-foreground">
-            Tip: Hold <kbd className="px-1 py-0.5 rounded bg-muted border text-xs font-mono">Shift</kbd> while dropping a dog to move this and future weeks (up to 14).
+            Tip: Drag and drop with <kbd className="px-1 py-0.5 rounded bg-muted border text-xs font-mono">Shift</kbd> to change assignent for only this week.
           </span>
         </div>
 
@@ -632,7 +629,7 @@ export function ForecastGrid({
                               ws,
                               dogId,
                               trainerHasClassThisWeek,
-                              e.shiftKey
+                              !e.shiftKey
                             );
                         }}
                       >
@@ -675,7 +672,7 @@ export function ForecastGrid({
                         onDrop={(e) => {
                           e.preventDefault();
                           const dogId = Number(e.dataTransfer.getData("application/dog-id"));
-                          if (dogId) handleDropParkingLot(ws, dogId, e.shiftKey);
+                          if (dogId) handleDropParkingLot(ws, dogId, !e.shiftKey);
                         }}
                       >
                         {cell?.dogs && renderDogBadges(cell.dogs, data.parkingLot.trainer.name, ws, (dog) => {
