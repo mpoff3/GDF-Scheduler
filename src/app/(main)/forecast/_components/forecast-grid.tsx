@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,8 +21,16 @@ import {
 } from "@/actions/assignments";
 import { markDogDropout, renameDog } from "@/actions/dogs";
 import { MIN_TRAINING_WEEKS, MAX_TRAINING_WEEKS } from "@/lib/constants";
-import { getMonday } from "@/lib/dates";
+import {
+  addWeeks,
+  FISCAL_YEAR_OPTIONS,
+  getFiscalYearWindow,
+  getMonday,
+  toDateString,
+  type FiscalYearKey,
+} from "@/lib/dates";
 import type { ForecastData } from "@/queries/forecast";
+import { FiscalYearSelector } from "./fiscal-year-selector";
 
 const MAX_VISIBLE_DOGS = 10;
 const LOAD_THRESHOLD_PX = 400;
@@ -131,6 +139,7 @@ export function ForecastGrid({
   const [draggedDogId, setDraggedDogId] = useState<number | null>(null);
   const [dragOverCell, setDragOverCell] = useState<string | null>(null);
   const [dropError, setDropError] = useState<string | null>(null);
+  const [selectedFiscalYear, setSelectedFiscalYear] = useState<FiscalYearKey>("default");
   const [schedulingDog, setSchedulingDog] = useState<{
     id: number;
     name: string;
@@ -159,6 +168,26 @@ export function ForecastGrid({
   dataRef.current = data;
 
   const todayStr = getMonday(new Date()).toISOString().split("T")[0];
+  const fiscalYearBounds = useMemo(() => {
+    const selectedOption = FISCAL_YEAR_OPTIONS.find(
+      (option) => option.value === selectedFiscalYear
+    );
+    if (!selectedOption?.startYear) return null;
+
+    const window = getFiscalYearWindow(selectedOption.startYear);
+    return {
+      start: toDateString(window.start),
+      end: toDateString(window.end),
+      weekCount: window.weekCount,
+    };
+  }, [selectedFiscalYear]);
+  const visibleWeekStarts = useMemo(() => {
+    if (!fiscalYearBounds) return data.weekStarts;
+    return data.weekStarts.filter((weekStart) => {
+      const weekDate = weekStart.split("T")[0];
+      return weekDate >= fiscalYearBounds.start && weekDate <= fiscalYearBounds.end;
+    });
+  }, [data.weekStarts, fiscalYearBounds]);
 
   // Scroll to today's column
   const scrollToToday = useCallback(() => {
@@ -210,6 +239,7 @@ export function ForecastGrid({
 
   // Load more weeks in a direction
   const loadMoreWeeks = useCallback(async (direction: "left" | "right") => {
+    if (selectedFiscalYear !== "default") return;
     if (direction === "left") {
       if (loadingLeftRef.current) return;
       loadingLeftRef.current = true;
@@ -254,6 +284,14 @@ export function ForecastGrid({
         loadingRightRef.current = false;
       }
     }
+  }, [selectedFiscalYear]);
+
+  const fetchRange = useCallback(async (startDate: Date, weekCount: number) => {
+    const res = await fetch(
+      `/api/forecast?startDate=${toDateString(startDate)}&weekCount=${weekCount}`
+    );
+    const nextData: ForecastData = await res.json();
+    return nextData;
   }, []);
 
   // Handle scroll events — load more when near edges
@@ -267,6 +305,7 @@ export function ForecastGrid({
       ticking = true;
       requestAnimationFrame(() => {
         ticking = false;
+        if (selectedFiscalYear !== "default") return;
         const { scrollLeft, scrollWidth, clientWidth } = container;
         const distanceFromRight = scrollWidth - scrollLeft - clientWidth;
 
@@ -281,25 +320,47 @@ export function ForecastGrid({
 
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
-  }, [loadMoreWeeks]);
+  }, [loadMoreWeeks, selectedFiscalYear]);
 
   // Refresh all currently loaded data (after assignments change)
   const refreshData = useCallback(async () => {
     setLoading(true);
     try {
       const current = dataRef.current;
-      const startDateStr = current.weekStarts[0].split("T")[0];
+      const startDateStr = current.weekStarts[0];
       const weekCount = current.weekStarts.length;
-      const res = await fetch(
-        `/api/forecast?startDate=${startDateStr}&weekCount=${weekCount}`
-      );
-      const newData = await res.json();
+      const newData = await fetchRange(new Date(startDateStr), weekCount);
       setData(newData);
       dataRef.current = newData;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchRange]);
+
+  const handleFiscalYearChange = useCallback(async (value: FiscalYearKey) => {
+    setSelectedFiscalYear(value);
+    setLoading(true);
+    try {
+      if (value === "default") {
+        const today = getMonday(new Date());
+        const startDate = addWeeks(today, -8);
+        const nextData = await fetchRange(startDate, 26);
+        setData(nextData);
+        dataRef.current = nextData;
+        return;
+      }
+
+      const option = FISCAL_YEAR_OPTIONS.find((entry) => entry.value === value);
+      if (!option?.startYear) return;
+
+      const { start, weekCount } = getFiscalYearWindow(option.startYear);
+      const nextData = await fetchRange(start, weekCount);
+      setData(nextData);
+      dataRef.current = nextData;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchRange]);
 
   async function handleDrop(
     trainerId: number,
@@ -437,6 +498,10 @@ export function ForecastGrid({
   return (
     <div className="space-y-4">
         <div className="flex items-center gap-4 flex-wrap">
+          <FiscalYearSelector
+            value={selectedFiscalYear}
+            onValueChange={handleFiscalYearChange}
+          />
           <Button
             variant="outline"
             size="sm"
@@ -477,7 +542,7 @@ export function ForecastGrid({
                 <th className="text-left p-2 font-medium sticky left-0 top-0 bg-muted min-w-[120px] border border-gray-300 z-30">
                   Trainer
                 </th>
-                {data.weekStarts.map((ws) => {
+                {visibleWeekStarts.map((ws) => {
                   const recall = isRecallWeek(ws, data.recallWeekStarts ?? []);
                   const classWeek = isClassWeek(ws, data.classWeekStarts ?? []);
                   const isToday = ws.split("T")[0] === todayStr;
@@ -520,7 +585,7 @@ export function ForecastGrid({
                   <td className="p-2 font-medium sticky left-0 bg-background border border-gray-300 z-10">
                     {row.trainer.name}
                   </td>
-                  {data.weekStarts.map((ws) => {
+                  {visibleWeekStarts.map((ws) => {
                     const cell = row.weeks[ws];
                     const recall = isRecallWeek(ws, data.recallWeekStarts ?? []);
                     const classWeek = isClassWeek(ws, data.classWeekStarts ?? []);
@@ -582,7 +647,7 @@ export function ForecastGrid({
                   <td className="p-2 font-medium sticky left-0 bg-muted border border-gray-300 z-10">
                     {data.parkingLot.trainer.name}
                   </td>
-                  {data.weekStarts.map((ws) => {
+                  {visibleWeekStarts.map((ws) => {
                     const cell = data.parkingLot.weeks[ws];
                     const recall = isRecallWeek(ws, data.recallWeekStarts ?? []);
                     const classWeek = isClassWeek(ws, data.classWeekStarts ?? []);
@@ -632,7 +697,7 @@ export function ForecastGrid({
                   <td className="p-2 font-medium sticky left-0 bg-orange-50 border border-gray-300 z-10">
                     Not Yet IFT
                   </td>
-                  {data.weekStarts.map((ws) => {
+                  {visibleWeekStarts.map((ws) => {
                     const cell = data.notYetIft.weeks[ws];
                     const recall = isRecallWeek(ws, data.recallWeekStarts ?? []);
                     const classWeek = isClassWeek(ws, data.classWeekStarts ?? []);
@@ -653,7 +718,7 @@ export function ForecastGrid({
                   <td className="p-2 font-medium sticky left-0 bg-purple-50 border border-gray-300 z-10">
                     Graduated
                   </td>
-                  {data.weekStarts.map((ws) => {
+                  {visibleWeekStarts.map((ws) => {
                     const cell = data.graduated.weeks[ws];
                     const recall = isRecallWeek(ws, data.recallWeekStarts ?? []);
                     const classWeek = isClassWeek(ws, data.classWeekStarts ?? []);
@@ -674,7 +739,7 @@ export function ForecastGrid({
                   <td className="p-2 font-medium sticky left-0 bg-rose-50 border border-gray-300 z-10">
                     Dropped Out
                   </td>
-                  {data.weekStarts.map((ws) => {
+                  {visibleWeekStarts.map((ws) => {
                     const cell = data.droppedOut.weeks[ws];
                     const recall = isRecallWeek(ws, data.recallWeekStarts ?? []);
                     const classWeek = isClassWeek(ws, data.classWeekStarts ?? []);
@@ -692,7 +757,7 @@ export function ForecastGrid({
               {data.trainers.length === 0 && (
                 <tr>
                   <td
-                    colSpan={data.weekStarts.length + 1}
+                    colSpan={visibleWeekStarts.length + 1}
                     className="text-center p-8 text-muted-foreground border border-gray-300"
                   >
                     No trainers yet. Add trainers to see the forecast.

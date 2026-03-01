@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getMonday, addWeeks, toDateString } from "@/lib/dates";
+import { MIN_TRAINING_WEEKS_FOR_CLASS } from "@/lib/constants";
 
 /** One dog in a recall event (for list/edit) */
 export type RecallEventDog = {
@@ -69,9 +70,9 @@ export async function getDogTrainingWeeks(dogId: number): Promise<number> {
 }
 
 /**
- * Returns dogs with 14+ training weeks. When asOfDate is provided, counts
- * training weeks through that week (matches forecast logic). Otherwise counts
- * only completed weeks (before start of this week).
+ * Returns dogs with MIN_TRAINING_WEEKS_FOR_CLASS+ training weeks (eligible for class).
+ * When asOfDate is provided, counts training weeks through that week (matches forecast logic).
+ * Otherwise counts only completed weeks (before start of this week).
  */
 export async function getDogsReadyForClass(asOfDate?: Date) {
   const now = new Date();
@@ -148,7 +149,7 @@ export async function getDogsReadyForClass(asOfDate?: Date) {
       ...dog,
       trainingWeeks: dog.assignments.length + dog.initialTrainingWeeks,
     }))
-    .filter((dog) => dog.trainingWeeks >= 14);
+    .filter((dog) => dog.trainingWeeks >= MIN_TRAINING_WEEKS_FOR_CLASS);
 }
 
 /**

@@ -7,6 +7,7 @@ import { ClassScheduleForm } from "../../new/class-schedule-form";
 import { toDateString } from "@/lib/dates";
 import { getMonday } from "@/lib/dates";
 import { Button } from "@/components/ui/button";
+import { MIN_TRAINING_WEEKS_FOR_CLASS } from "@/lib/constants";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -39,7 +40,7 @@ export default async function EditClassPage({ params }: Props) {
       readyDogs.push({
         id: ca.dog.id,
         name: ca.dog.name,
-        trainingWeeks: 14,
+        trainingWeeks: MIN_TRAINING_WEEKS_FOR_CLASS,
       });
     }
   }

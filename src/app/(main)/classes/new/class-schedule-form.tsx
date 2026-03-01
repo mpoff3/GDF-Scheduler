@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { scheduleClass, confirmClass, updateClass, type DisplacedDog } from "@/actions/classes";
 import { getMonday, toDateString } from "@/lib/dates";
+import { MIN_TRAINING_WEEKS_FOR_CLASS } from "@/lib/constants";
 
 type DogAssignment = {
   dogId: number;
@@ -64,7 +65,7 @@ export function ClassScheduleForm({
     if (!existingClass) return [] as typeof readyDogs;
     return existingClass.assignments.map((a) => {
       const dog = readyDogs.find((d) => d.id === a.dogId);
-      return dog || { id: a.dogId, name: `Dog #${a.dogId}`, trainingWeeks: 14 };
+      return dog || { id: a.dogId, name: `Dog #${a.dogId}`, trainingWeeks: MIN_TRAINING_WEEKS_FOR_CLASS };
     });
   });
 
@@ -255,7 +256,7 @@ export function ClassScheduleForm({
                 </p>
               ) : readyDogsList.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No dogs with 14+ training weeks available for this date.
+                  No dogs with {MIN_TRAINING_WEEKS_FOR_CLASS}+ training weeks available for this date.
                   You can still schedule the date and assign dogs later.
                 </p>
               ) : (
